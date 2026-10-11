@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+.env
+.pytest_cache/
+*.log
+scripts/ids_demo.json

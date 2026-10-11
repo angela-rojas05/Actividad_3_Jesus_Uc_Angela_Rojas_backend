@@ -1,0 +1,745 @@
+diff --git a/app/schema.py b/app/schema.py
+index 252cce8..6c7e1de 100644
+--- a/app/schema.py
++++ b/app/schema.py
+@@ -1,4 +1,6 @@
+ from datetime import datetime
++from decimal import Decimal
++from enum import Enum
+ from typing import Optional
+ 
+ import strawberry
+@@ -11,6 +13,7 @@ from strawberry.schema.config import StrawberryConfig
+ 
+ from app.database import SessionLocal
+ from app.models import Company, CompanyUser, User
++from app.financial_models import Account, AccountConcept, Concept, Transaction, utcnow as financial_utcnow
+ from app.security import (
+     create_access_token,
+     decode_access_token,
+@@ -174,6 +177,92 @@ class AuthPayload:
+     user: AuthUser
+ 
+ 
++@strawberry.enum(name="AccountType")
++class AccountTypeEnum(Enum):
++    DEBIT = "DEBIT"
++    CREDIT = "CREDIT"
++    CASH = "CASH"
++    SAVINGS = "SAVINGS"
++    INVESTMENT = "INVESTMENT"
++    WALLET = "WALLET"
++    OTHER = "OTHER"
++
++
++@strawberry.enum(name="ConceptType")
++class ConceptTypeEnum(Enum):
++    INCOME = "INCOME"
++    EXPENSE = "EXPENSE"
++
++
++@strawberry.enum(name="TransactionType")
++class TransactionTypeEnum(Enum):
++    INCOME = "INCOME"
++    EXPENSE = "EXPENSE"
++
++
++@strawberry.type(name="Account")
++class AccountGraphQL:
++    id: strawberry.ID
++    company_id: strawberry.ID
++    account_type: AccountTypeEnum
++    name: str
++    bank_name: Optional[str]
++    account_number: Optional[str]
++    clabe: Optional[str]
++    card_last_digits: Optional[str]
++    short_description: Optional[str]
++    long_description: Optional[str]
++    is_active: bool
++    created_at: datetime
++    updated_at: datetime
++    company: CompanyType
++
++
++@strawberry.type(name="Concept")
++class ConceptGraphQL:
++    id: strawberry.ID
++    company_id: strawberry.ID
++    concept_type: ConceptTypeEnum
++    name: str
++    short_description: Optional[str]
++    long_description: Optional[str]
++    is_active: bool
++    created_at: datetime
++    updated_at: datetime
++    company: CompanyType
++
++
++@strawberry.type(name="AccountConcept")
++class AccountConceptGraphQL:
++    id: strawberry.ID
++    account_id: strawberry.ID
++    concept_id: strawberry.ID
++    is_active: bool
++    created_at: datetime
++    account: AccountGraphQL
++    concept: ConceptGraphQL
++
++
++@strawberry.type(name="Transaction")
++class TransactionGraphQL:
++    id: strawberry.ID
++    account_id: strawberry.ID
++    concept_id: strawberry.ID
++    transaction_type: TransactionTypeEnum
++    amount: Decimal
++    transaction_date: datetime
++    captured_at: datetime
++    captured_by: strawberry.ID
++    short_description: Optional[str]
++    long_description: Optional[str]
++    is_active: bool
++    created_at: datetime
++    updated_at: datetime
++    account: AccountGraphQL
++    concept: ConceptGraphQL
++    captured_by_user: UserType
++
++
+ # =========================================================
+ # INPUTS
+ # =========================================================
+@@ -220,6 +309,45 @@ class CreateCompanyUserInput:
+     password: str
+ 
+ 
++@strawberry.input
++class CreateAccountInput:
++    company_id: strawberry.ID
++    account_type: AccountTypeEnum
++    name: str
++    bank_name: Optional[str] = None
++    account_number: Optional[str] = None
++    clabe: Optional[str] = None
++    card_last_digits: Optional[str] = None
++    short_description: Optional[str] = None
++    long_description: Optional[str] = None
++
++
++@strawberry.input
++class CreateConceptInput:
++    company_id: strawberry.ID
++    concept_type: ConceptTypeEnum
++    name: str
++    short_description: Optional[str] = None
++    long_description: Optional[str] = None
++
++
++@strawberry.input
++class AssignConceptToAccountInput:
++    account_id: strawberry.ID
++    concept_id: strawberry.ID
++
++
++@strawberry.input
++class CreateTransactionInput:
++    account_id: strawberry.ID
++    concept_id: strawberry.ID
++    transaction_type: TransactionTypeEnum
++    amount: Decimal
++    transaction_date: Optional[datetime] = None
++    short_description: Optional[str] = None
++    long_description: Optional[str] = None
++
++
+ # =========================================================
+ # CONVERSIÓN MODELO -> GRAPHQL
+ # =========================================================
+@@ -287,6 +415,74 @@ def company_user_to_type(
+     )
+ 
+ 
++
++def account_to_type(account: Account) -> AccountGraphQL:
++    return AccountGraphQL(
++        id=strawberry.ID(str(account.id)),
++        company_id=strawberry.ID(str(account.company_id)),
++        account_type=AccountTypeEnum(account.account_type),
++        name=account.name,
++        bank_name=account.bank_name,
++        account_number=account.account_number,
++        clabe=account.clabe,
++        card_last_digits=account.card_last_digits,
++        short_description=account.short_description,
++        long_description=account.long_description,
++        is_active=account.is_active,
++        created_at=account.created_at,
++        updated_at=account.updated_at,
++        company=company_to_type(account.company),
++    )
++
++
++def concept_to_type(concept: Concept) -> ConceptGraphQL:
++    return ConceptGraphQL(
++        id=strawberry.ID(str(concept.id)),
++        company_id=strawberry.ID(str(concept.company_id)),
++        concept_type=ConceptTypeEnum(concept.concept_type),
++        name=concept.name,
++        short_description=concept.short_description,
++        long_description=concept.long_description,
++        is_active=concept.is_active,
++        created_at=concept.created_at,
++        updated_at=concept.updated_at,
++        company=company_to_type(concept.company),
++    )
++
++
++def account_concept_to_type(relation: AccountConcept) -> AccountConceptGraphQL:
++    return AccountConceptGraphQL(
++        id=strawberry.ID(str(relation.id)),
++        account_id=strawberry.ID(str(relation.account_id)),
++        concept_id=strawberry.ID(str(relation.concept_id)),
++        is_active=relation.is_active,
++        created_at=relation.created_at,
++        account=account_to_type(relation.account),
++        concept=concept_to_type(relation.concept),
++    )
++
++
++def transaction_to_type(transaction: Transaction) -> TransactionGraphQL:
++    return TransactionGraphQL(
++        id=strawberry.ID(str(transaction.id)),
++        account_id=strawberry.ID(str(transaction.account_id)),
++        concept_id=strawberry.ID(str(transaction.concept_id)),
++        transaction_type=TransactionTypeEnum(transaction.transaction_type),
++        amount=transaction.amount,
++        transaction_date=transaction.transaction_date,
++        captured_at=transaction.captured_at,
++        captured_by=strawberry.ID(str(transaction.captured_by)),
++        short_description=transaction.short_description,
++        long_description=transaction.long_description,
++        is_active=transaction.is_active,
++        created_at=transaction.created_at,
++        updated_at=transaction.updated_at,
++        account=account_to_type(transaction.account),
++        concept=concept_to_type(transaction.concept),
++        captured_by_user=user_to_type(transaction.captured_by_user),
++    )
++
++
+ # =========================================================
+ # QUERIES
+ # =========================================================
+@@ -383,6 +579,95 @@ class Query:
+             ]
+ 
+ 
++    @strawberry.field
++    def accounts(
++        self,
++        company_id: strawberry.ID,
++        account_type: Optional[AccountTypeEnum] = None,
++        active_only: Optional[bool] = None,
++    ) -> list[AccountGraphQL]:
++        with SessionLocal() as db:
++            company = db.get(Company, int(company_id))
++            if company is None:
++                raise GraphQLError("La empresa no existe.")
++
++            stmt = select(Account).where(Account.company_id == int(company_id))
++            if account_type is not None:
++                stmt = stmt.where(Account.account_type == account_type.value)
++            if active_only is True:
++                stmt = stmt.where(Account.is_active.is_(True))
++            stmt = stmt.order_by(Account.id)
++
++            return [account_to_type(item) for item in db.scalars(stmt).all()]
++
++
++    @strawberry.field
++    def concepts(
++        self,
++        company_id: strawberry.ID,
++        concept_type: Optional[ConceptTypeEnum] = None,
++        active_only: Optional[bool] = None,
++    ) -> list[ConceptGraphQL]:
++        with SessionLocal() as db:
++            company = db.get(Company, int(company_id))
++            if company is None:
++                raise GraphQLError("La empresa no existe.")
++
++            stmt = select(Concept).where(Concept.company_id == int(company_id))
++            if concept_type is not None:
++                stmt = stmt.where(Concept.concept_type == concept_type.value)
++            if active_only is True:
++                stmt = stmt.where(Concept.is_active.is_(True))
++            stmt = stmt.order_by(Concept.id)
++
++            return [concept_to_type(item) for item in db.scalars(stmt).all()]
++
++
++    @strawberry.field
++    def account_concepts(
++        self,
++        account_id: strawberry.ID,
++    ) -> list[AccountConceptGraphQL]:
++        with SessionLocal() as db:
++            account = db.get(Account, int(account_id))
++            if account is None:
++                raise GraphQLError("La cuenta no existe.")
++
++            stmt = (
++                select(AccountConcept)
++                .where(AccountConcept.account_id == int(account_id))
++                .order_by(AccountConcept.id)
++            )
++            return [account_concept_to_type(item) for item in db.scalars(stmt).all()]
++
++
++    @strawberry.field
++    def transactions(
++        self,
++        account_id: Optional[strawberry.ID] = None,
++        transaction_type: Optional[TransactionTypeEnum] = None,
++        limit: Optional[int] = None,
++        offset: Optional[int] = None,
++    ) -> list[TransactionGraphQL]:
++        real_limit = 100 if limit is None else limit
++        real_offset = 0 if offset is None else offset
++
++        if real_limit <= 0 or real_limit > 100:
++            raise GraphQLError("El limit debe estar entre 1 y 100.")
++        if real_offset < 0:
++            raise GraphQLError("El offset no puede ser negativo.")
++
++        with SessionLocal() as db:
++            stmt = select(Transaction).where(Transaction.is_active.is_(True))
++            if account_id is not None:
++                stmt = stmt.where(Transaction.account_id == int(account_id))
++            if transaction_type is not None:
++                stmt = stmt.where(Transaction.transaction_type == transaction_type.value)
++            stmt = stmt.order_by(Transaction.id).limit(real_limit).offset(real_offset)
++
++            return [transaction_to_type(item) for item in db.scalars(stmt).all()]
++
++
+ # =========================================================
+ # MUTATIONS
+ # =========================================================
+@@ -882,6 +1167,265 @@ class Mutation:
+             )
+ 
+ 
++    # -----------------------------------------------------
++    # CUENTAS, CONCEPTOS Y RELACIONES
++    # -----------------------------------------------------
++
++    @strawberry.mutation
++    def create_account(self, input: CreateAccountInput) -> AccountGraphQL:
++        with SessionLocal() as db:
++            company_id = int(input.company_id)
++            company = db.get(Company, company_id)
++            if company is None:
++                raise GraphQLError("La empresa no existe.")
++            if not company.is_active:
++                raise GraphQLError("La empresa está inactiva.")
++
++            name = clean_required_text(input.name, "El nombre de la cuenta")
++            existing = db.scalar(
++                select(Account).where(
++                    Account.company_id == company_id,
++                    Account.name == name,
++                )
++            )
++            if existing:
++                raise GraphQLError("Ya existe una cuenta con ese nombre en la empresa.")
++
++            account = Account(
++                company_id=company_id,
++                account_type=input.account_type.value,
++                name=name,
++                bank_name=input.bank_name.strip() if input.bank_name and input.bank_name.strip() else None,
++                account_number=input.account_number.strip() if input.account_number and input.account_number.strip() else None,
++                clabe=input.clabe.strip() if input.clabe and input.clabe.strip() else None,
++                card_last_digits=input.card_last_digits.strip() if input.card_last_digits and input.card_last_digits.strip() else None,
++                short_description=input.short_description.strip() if input.short_description and input.short_description.strip() else None,
++                long_description=input.long_description.strip() if input.long_description and input.long_description.strip() else None,
++            )
++            db.add(account)
++            try:
++                db.commit()
++            except IntegrityError as exc:
++                db.rollback()
++                raise GraphQLError("No se pudo crear la cuenta porque el registro está duplicado.") from exc
++            db.refresh(account)
++            return account_to_type(account)
++
++
++    @strawberry.mutation
++    def create_concept(self, input: CreateConceptInput) -> ConceptGraphQL:
++        with SessionLocal() as db:
++            company_id = int(input.company_id)
++            company = db.get(Company, company_id)
++            if company is None:
++                raise GraphQLError("La empresa no existe.")
++            if not company.is_active:
++                raise GraphQLError("La empresa está inactiva.")
++
++            name = clean_required_text(input.name, "El nombre del concepto")
++            existing = db.scalar(
++                select(Concept).where(
++                    Concept.company_id == company_id,
++                    Concept.concept_type == input.concept_type.value,
++                    Concept.name == name,
++                )
++            )
++            if existing:
++                raise GraphQLError("Ya existe ese concepto del mismo tipo en la empresa.")
++
++            concept = Concept(
++                company_id=company_id,
++                concept_type=input.concept_type.value,
++                name=name,
++                short_description=input.short_description.strip() if input.short_description and input.short_description.strip() else None,
++                long_description=input.long_description.strip() if input.long_description and input.long_description.strip() else None,
++            )
++            db.add(concept)
++            try:
++                db.commit()
++            except IntegrityError as exc:
++                db.rollback()
++                raise GraphQLError("No se pudo crear el concepto porque el registro está duplicado.") from exc
++            db.refresh(concept)
++            return concept_to_type(concept)
++
++
++    @strawberry.mutation
++    def assign_concept_to_account(
++        self,
++        input: AssignConceptToAccountInput,
++    ) -> AccountConceptGraphQL:
++        with SessionLocal() as db:
++            account = db.get(Account, int(input.account_id))
++            concept = db.get(Concept, int(input.concept_id))
++
++            if account is None:
++                raise GraphQLError("La cuenta no existe.")
++            if concept is None:
++                raise GraphQLError("El concepto no existe.")
++            if not account.is_active:
++                raise GraphQLError("La cuenta está inactiva.")
++            if not concept.is_active:
++                raise GraphQLError("El concepto está inactivo.")
++            if account.company_id != concept.company_id:
++                raise GraphQLError("La cuenta y el concepto deben pertenecer a la misma empresa.")
++
++            existing = db.scalar(
++                select(AccountConcept).where(
++                    AccountConcept.account_id == account.id,
++                    AccountConcept.concept_id == concept.id,
++                )
++            )
++            if existing:
++                if existing.is_active:
++                    raise GraphQLError("El concepto ya está asignado a la cuenta.")
++                existing.is_active = True
++                db.commit()
++                db.refresh(existing)
++                return account_concept_to_type(existing)
++
++            relation = AccountConcept(account_id=account.id, concept_id=concept.id)
++            db.add(relation)
++            try:
++                db.commit()
++            except IntegrityError as exc:
++                db.rollback()
++                raise GraphQLError("La relación cuenta-concepto ya existe.") from exc
++            db.refresh(relation)
++            return account_concept_to_type(relation)
++
++
++    @strawberry.mutation
++    def remove_concept_from_account(
++        self,
++        account_id: strawberry.ID,
++        concept_id: strawberry.ID,
++    ) -> bool:
++        with SessionLocal() as db:
++            relation = db.scalar(
++                select(AccountConcept).where(
++                    AccountConcept.account_id == int(account_id),
++                    AccountConcept.concept_id == int(concept_id),
++                )
++            )
++            if relation is None:
++                raise GraphQLError("La relación cuenta-concepto no existe.")
++            if not relation.is_active:
++                raise GraphQLError("La relación cuenta-concepto ya está desactivada.")
++
++            relation.is_active = False
++            db.commit()
++            return True
++
++
++    # -----------------------------------------------------
++    # MOVIMIENTOS FINANCIEROS
++    # -----------------------------------------------------
++
++    @strawberry.mutation
++    def create_transaction(
++        self,
++        info: strawberry.Info,
++        input: CreateTransactionInput,
++    ) -> TransactionGraphQL:
++        user_id = get_authenticated_user_id(info)
++
++        with SessionLocal() as db:
++            user = db.get(User, user_id)
++            if user is None or not user.is_active:
++                raise GraphQLError("Usuario autenticado no válido o inactivo.")
++
++            account = db.get(Account, int(input.account_id))
++            if account is None:
++                raise GraphQLError("La cuenta no existe.")
++            if not account.is_active:
++                raise GraphQLError("La cuenta está inactiva.")
++
++            concept = db.get(Concept, int(input.concept_id))
++            if concept is None:
++                raise GraphQLError("El concepto no existe.")
++            if not concept.is_active:
++                raise GraphQLError("El concepto está inactivo.")
++
++            if account.company_id != concept.company_id:
++                raise GraphQLError("La cuenta y el concepto deben pertenecer a la misma empresa.")
++
++            company_user = db.scalar(
++                select(CompanyUser).where(
++                    CompanyUser.company_id == account.company_id,
++                    CompanyUser.user_id == user_id,
++                    CompanyUser.is_active.is_(True),
++                )
++            )
++            if company_user is None:
++                raise GraphQLError("El usuario autenticado no pertenece de forma activa a la empresa de la cuenta.")
++
++            allowed = db.scalar(
++                select(AccountConcept).where(
++                    AccountConcept.account_id == account.id,
++                    AccountConcept.concept_id == concept.id,
++                    AccountConcept.is_active.is_(True),
++                )
++            )
++            if allowed is None:
++                raise GraphQLError("El concepto no está permitido para la cuenta seleccionada.")
++
++            if input.transaction_type.value != concept.concept_type:
++                raise GraphQLError("El tipo de movimiento no es compatible con el tipo de concepto.")
++
++            amount = Decimal(input.amount)
++            if amount <= 0:
++                raise GraphQLError("El monto del movimiento debe ser mayor que cero.")
++
++            now = financial_utcnow()
++            transaction = Transaction(
++                account_id=account.id,
++                concept_id=concept.id,
++                transaction_type=input.transaction_type.value,
++                amount=amount,
++                transaction_date=input.transaction_date or now,
++                captured_at=now,
++                captured_by=user_id,
++                short_description=input.short_description.strip() if input.short_description and input.short_description.strip() else None,
++                long_description=input.long_description.strip() if input.long_description and input.long_description.strip() else None,
++            )
++            db.add(transaction)
++            db.commit()
++            db.refresh(transaction)
++            return transaction_to_type(transaction)
++
++
++    @strawberry.mutation
++    def delete_transaction(
++        self,
++        info: strawberry.Info,
++        id: strawberry.ID,
++    ) -> TransactionGraphQL:
++        user_id = get_authenticated_user_id(info)
++
++        with SessionLocal() as db:
++            transaction = db.get(Transaction, int(id))
++            if transaction is None:
++                raise GraphQLError("El movimiento no existe.")
++            if not transaction.is_active:
++                raise GraphQLError("El movimiento ya está eliminado.")
++
++            company_user = db.scalar(
++                select(CompanyUser).where(
++                    CompanyUser.company_id == transaction.account.company_id,
++                    CompanyUser.user_id == user_id,
++                    CompanyUser.is_active.is_(True),
++                )
++            )
++            if company_user is None:
++                raise GraphQLError("El usuario autenticado no pertenece de forma activa a la empresa del movimiento.")
++
++            transaction.is_active = False
++            db.commit()
++            db.refresh(transaction)
++            return transaction_to_type(transaction)
++
++
+     # -----------------------------------------------------
+     # LOGIN
+     # -----------------------------------------------------
+diff --git a/app/main.py b/app/main.py
+index cebe843..0f4e97a 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -18,11 +18,11 @@ async def lifespan(app: FastAPI):
+ 
+ 
+ app = FastAPI(
+-    title="Actividad 4 - Sistema Financiero",
++    title="Actividad 4 - Gestión Financiera",
+ 
+     description=(
+-        "Gestión de empresas, usuarios "
+-        "y autenticación mediante GraphQL"
++        "Gestión de empresas, usuarios, cuentas, conceptos "
++        "y movimientos financieros mediante GraphQL"
+     ),
+ 
+     lifespan=lifespan,
+@@ -44,7 +44,7 @@ app.include_router(
+ @app.get("/")
+ def root():
+     return {
+-        "message": "Actividad 4 funcionando",
++        "message": "Actividad 4 - Gestión financiera funcionando",
+         "graphql": "/graphql"
+     }
+ 
+diff --git a/app/financial_models.py b/app/financial_models.py
+new file mode 100644
+index 0000000..6e5971b
+--- /dev/null
++++ b/app/financial_models.py
+@@ -0,0 +1,116 @@
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from decimal import Decimal
++
++from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint
++from sqlalchemy.orm import Mapped, mapped_column, relationship
++
++from app.database import Base
++from app.models import Company, User
++
++
++def utcnow() -> datetime:
++    return datetime.now(timezone.utc).replace(tzinfo=None)
++
++
++class Account(Base):
++    __tablename__ = "accounts"
++    __table_args__ = (
++        UniqueConstraint("company_id", "name", name="uq_account_company_name"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
++    company_id: Mapped[int] = mapped_column(
++        ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
++    )
++    account_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
++    name: Mapped[str] = mapped_column(String(120), nullable=False)
++    bank_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
++    account_number: Mapped[str | None] = mapped_column(String(60), nullable=True)
++    clabe: Mapped[str | None] = mapped_column(String(30), nullable=True)
++    card_last_digits: Mapped[str | None] = mapped_column(String(8), nullable=True)
++    short_description: Mapped[str | None] = mapped_column(String(255), nullable=True)
++    long_description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime, default=utcnow, onupdate=utcnow, nullable=False
++    )
++
++    company: Mapped[Company] = relationship()
++
++
++class Concept(Base):
++    __tablename__ = "concepts"
++    __table_args__ = (
++        UniqueConstraint(
++            "company_id", "concept_type", "name", name="uq_concept_company_type_name"
++        ),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
++    company_id: Mapped[int] = mapped_column(
++        ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
++    )
++    concept_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
++    name: Mapped[str] = mapped_column(String(120), nullable=False)
++    short_description: Mapped[str | None] = mapped_column(String(255), nullable=True)
++    long_description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime, default=utcnow, onupdate=utcnow, nullable=False
++    )
++
++    company: Mapped[Company] = relationship()
++
++
++class AccountConcept(Base):
++    __tablename__ = "account_concepts"
++    __table_args__ = (
++        UniqueConstraint("account_id", "concept_id", name="uq_account_concept"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
++    account_id: Mapped[int] = mapped_column(
++        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
++    )
++    concept_id: Mapped[int] = mapped_column(
++        ForeignKey("concepts.id", ondelete="CASCADE"), nullable=False, index=True
++    )
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
++
++    account: Mapped[Account] = relationship()
++    concept: Mapped[Concept] = relationship()
++
++
++class Transaction(Base):
++    __tablename__ = "transactions"
++
++    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
++    account_id: Mapped[int] = mapped_column(
++        ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=False, index=True
++    )
++    concept_id: Mapped[int] = mapped_column(
++        ForeignKey("concepts.id", ondelete="RESTRICT"), nullable=False, index=True
++    )
++    transaction_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
++    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
++    transaction_date: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
++    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
++    captured_by: Mapped[int] = mapped_column(
++        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
++    )
++    short_description: Mapped[str | None] = mapped_column(String(255), nullable=True)
++    long_description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime, default=utcnow, onupdate=utcnow, nullable=False
++    )
++
++    account: Mapped[Account] = relationship()
++    concept: Mapped[Concept] = relationship()
++    captured_by_user: Mapped[User] = relationship()
