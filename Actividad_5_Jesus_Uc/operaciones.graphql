@@ -1,0 +1,81 @@
+fragment DatosPermiso on Permission {
+  id
+  code
+  name
+}
+
+query ExplorarCatalogo($actor: ID!) {
+  cuentas: permissionCatalog(actorCompanyUserId: $actor, resource: ACCOUNTS) {
+    ...DatosPermiso
+  }
+  movimientos: permissionCatalog(actorCompanyUserId: $actor, resource: TRANSACTIONS) {
+    ...DatosPermiso
+  }
+}
+
+query CatalogoCompleto($actor: ID!) {
+  permissionCatalog(actorCompanyUserId: $actor) {
+    ...DatosPermiso
+  }
+}
+
+query CatalogoPorRecurso($actor: ID!, $recurso: PermissionResource) {
+  permissionCatalog(actorCompanyUserId: $actor, resource: $recurso) {
+    ...DatosPermiso
+  }
+}
+
+query RevisarConfiguracion($actor: ID!, $input: SetRolePermissionsInput!) {
+  previewRolePermissions(actorCompanyUserId: $actor, input: $input) {
+    role { code }
+    current { code }
+    toActivate { code }
+    toDeactivate { code }
+    unchanged { code }
+    finalCount
+  }
+}
+
+mutation AplicarConfiguracion($actor: ID!, $input: SetRolePermissionsInput!) {
+  setRolePermissions(actorCompanyUserId: $actor, input: $input) {
+    role { code }
+    activated { code }
+    deactivated { code }
+    unchanged { code }
+    finalCount
+    changed
+  }
+}
+
+query ListarRoles($actor: ID!) {
+  roles(actorCompanyUserId: $actor) {
+    id
+    code
+    name
+    description
+    isActive
+  }
+}
+
+query ListarPermisos($actor: ID!) {
+  permissions(actorCompanyUserId: $actor) {
+    id
+    code
+    name
+    description
+    isActive
+  }
+}
+
+query ListaDeUnRol($actor: ID!, $roleId: ID!) {
+  rolePermissions(actorCompanyUserId: $actor, roleId: $roleId) {
+    id
+    isActive
+    role { code }
+    permission {
+      id
+      code
+      name
+    }
+  }
+}

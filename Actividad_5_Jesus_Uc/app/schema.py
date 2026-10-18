@@ -23,6 +23,14 @@ from app.models import (
 )
 from app.financial_models import Account, AccountConcept, Concept, Transaction, utcnow as financial_utcnow
 from app.access import validar_acceso
+from app.role_config import (
+    PermissionResource,
+    SetRolePermissionsInput,
+    aplicar_plan,
+    calcular_plan,
+    listar_catalogo,
+    validar_propuesta,
+)
 from app.security import (
     create_access_token,
     decode_access_token,
@@ -591,6 +599,26 @@ def company_user_role_to_type(relation: CompanyUserRoleModel) -> CompanyUserRole
     )
 
 
+@strawberry.type(name="RolePermissionPlan")
+class RolePermissionPlanType:
+    role: RoleType
+    current: list[PermissionType]
+    to_activate: list[PermissionType]
+    to_deactivate: list[PermissionType]
+    unchanged: list[PermissionType]
+    final_count: int
+
+
+@strawberry.type(name="RolePermissionUpdate")
+class RolePermissionUpdateType:
+    role: RoleType
+    activated: list[PermissionType]
+    deactivated: list[PermissionType]
+    unchanged: list[PermissionType]
+    final_count: int
+    changed: bool
+
+
 # =========================================================
 # QUERIES
 # =========================================================
@@ -881,6 +909,40 @@ class Query:
                 .order_by(RolePermissionModel.id)
             )
             return [role_permission_to_type(item) for item in db.scalars(stmt).all()]
+
+    @strawberry.field
+    def permission_catalog(
+        self,
+        actor_company_user_id: strawberry.ID,
+        resource: Optional[PermissionResource] = None,
+    ) -> list[PermissionType]:
+        with SessionLocal() as db:
+            validar_acceso(db, actor_company_user_id, "roles.read")
+            return [
+                permission_to_type(p)
+                for p in listar_catalogo(db, resource)
+            ]
+
+    @strawberry.field
+    def preview_role_permissions(
+        self,
+        input: SetRolePermissionsInput,
+        actor_company_user_id: strawberry.ID,
+    ) -> Optional[RolePermissionPlanType]:
+        with SessionLocal() as db:
+            validar_acceso(db, actor_company_user_id, "roles.read")
+            role, deseados = validar_propuesta(
+                db, input.role_id, input.permission_ids
+            )
+            plan = calcular_plan(db, role, deseados)
+            return RolePermissionPlanType(
+                role=role_to_type(plan.role),
+                current=[permission_to_type(p) for p in plan.current],
+                to_activate=[permission_to_type(p) for p in plan.to_activate],
+                to_deactivate=[permission_to_type(p) for p in plan.to_deactivate],
+                unchanged=[permission_to_type(p) for p in plan.unchanged],
+                final_count=plan.final_count,
+            )
 
 
 
@@ -2013,6 +2075,41 @@ class Mutation:
 
             db.refresh(target_cur)
             return company_user_role_to_type(target_cur)
+
+    @strawberry.mutation
+    def set_role_permissions(
+        self,
+        input: SetRolePermissionsInput,
+        actor_company_user_id: strawberry.ID,
+    ) -> Optional[RolePermissionUpdateType]:
+        with SessionLocal() as db:
+            validar_acceso(db, actor_company_user_id, "roles.write")
+
+            try:
+                role, deseados = validar_propuesta(
+                    db, input.role_id, input.permission_ids
+                )
+                plan = calcular_plan(db, role, deseados)
+                aplicar_plan(db, plan)
+                db.commit()
+            except IntegrityError as exc:
+                db.rollback()
+                raise GraphQLError(
+                    "No se pudo aplicar la configuración; "
+                    "no se guardó ningún cambio."
+                ) from exc
+            except Exception:
+                db.rollback()
+                raise
+
+            return RolePermissionUpdateType(
+                role=role_to_type(plan.role),
+                activated=[permission_to_type(p) for p in plan.to_activate],
+                deactivated=[permission_to_type(p) for p in plan.to_deactivate],
+                unchanged=[permission_to_type(p) for p in plan.unchanged],
+                final_count=plan.final_count,
+                changed=plan.changed,
+            )
 
 
 

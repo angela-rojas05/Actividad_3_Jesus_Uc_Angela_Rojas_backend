@@ -1,0 +1,36 @@
+{
+  "ADMINISTRADOR": [
+    "company.users.read",
+    "company.users.write",
+    "accounts.read",
+    "accounts.write",
+    "concepts.read",
+    "concepts.write",
+    "transactions.read",
+    "transactions.write",
+    "roles.read",
+    "roles.write"
+  ],
+  "CONTADOR": [
+    "company.users.read",
+    "accounts.read",
+    "accounts.write",
+    "concepts.read",
+    "concepts.write",
+    "transactions.read",
+    "transactions.write",
+    "roles.read"
+  ],
+  "CAPTURISTA": [
+    "accounts.read",
+    "concepts.read",
+    "transactions.read",
+    "transactions.write"
+  ],
+  "CONSULTA": [
+    "company.users.read",
+    "accounts.read",
+    "concepts.read",
+    "transactions.read"
+  ]
+}
