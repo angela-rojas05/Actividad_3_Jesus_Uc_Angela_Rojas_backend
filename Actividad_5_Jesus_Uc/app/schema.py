@@ -22,7 +22,7 @@ from app.models import (
     User,
 )
 from app.financial_models import Account, AccountConcept, Concept, Transaction, utcnow as financial_utcnow
-from app.access import validar_acceso
+from app.access import leer_actor, validar_acceso
 from app.role_config import (
     PermissionResource,
     SetRolePermissionsInput,
@@ -32,8 +32,7 @@ from app.role_config import (
     validar_propuesta,
 )
 from app.security import (
-    create_access_token,
-    decode_access_token,
+    crear_token,
     hash_password,
     verify_password,
 )
@@ -75,70 +74,6 @@ def clean_required_text(
 # =========================================================
 # AUTENTICACIÓN
 # =========================================================
-
-def get_authenticated_user_id(
-    info: strawberry.Info
-) -> int:
-
-    request = info.context["request"]
-
-    authorization = request.headers.get(
-        "Authorization",
-        ""
-    )
-
-    if not authorization.startswith("Bearer "):
-        raise GraphQLError(
-            "Debes autenticarte con un token Bearer."
-        )
-
-    token = authorization.removeprefix(
-        "Bearer "
-    ).strip()
-
-    try:
-        return decode_access_token(token)
-
-    except ValueError as exc:
-        raise GraphQLError(
-            str(exc)
-        ) from exc
-
-
-def ensure_company_admin(
-    info: strawberry.Info,
-    company_id: int
-) -> None:
-
-    user_id = get_authenticated_user_id(info)
-
-    with SessionLocal() as db:
-
-        user = db.get(
-            User,
-            user_id
-        )
-
-        if user is None or not user.is_active:
-            raise GraphQLError(
-                "Usuario autenticado no válido o inactivo."
-            )
-
-        relation = db.scalar(
-            select(CompanyUser).where(
-                CompanyUser.company_id == company_id,
-                CompanyUser.user_id == user_id,
-                CompanyUser.is_admin.is_(True),
-                CompanyUser.is_active.is_(True),
-            )
-        )
-
-        if relation is None:
-            raise GraphQLError(
-                "Solo el administrador de la empresa "
-                "puede registrar usuarios."
-            )
-
 
 # =========================================================
 # TIPOS GRAPHQL
@@ -342,6 +277,7 @@ class UpdateCompanyInput:
 class LoginInput:
     email: str
     password: str
+    company_id: Optional[strawberry.ID] = None
 
 
 @strawberry.input
@@ -679,14 +615,15 @@ class Query:
     @strawberry.field
     def company_users(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         company_id: strawberry.ID
     ) -> list[CompanyUserType]:
 
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "company.users.read",
                 target_company_id=int(company_id),
             )
@@ -725,15 +662,16 @@ class Query:
     @strawberry.field
     def accounts(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         company_id: strawberry.ID,
         account_type: Optional[AccountTypeEnum] = None,
         active_only: Optional[bool] = None,
     ) -> list[AccountGraphQL]:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "accounts.read",
                 target_company_id=int(company_id),
             )
@@ -755,15 +693,16 @@ class Query:
     @strawberry.field
     def concepts(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         company_id: strawberry.ID,
         concept_type: Optional[ConceptTypeEnum] = None,
         active_only: Optional[bool] = None,
     ) -> list[ConceptGraphQL]:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "concepts.read",
                 target_company_id=int(company_id),
             )
@@ -785,17 +724,18 @@ class Query:
     @strawberry.field
     def account_concepts(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         account_id: strawberry.ID,
     ) -> list[AccountConceptGraphQL]:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             account = db.get(Account, int(account_id))
             if account is None:
                 raise GraphQLError("La cuenta no existe.")
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "concepts.read",
                 target_company_id=account.company_id,
             )
@@ -811,7 +751,7 @@ class Query:
     @strawberry.field
     def transactions(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         account_id: Optional[strawberry.ID] = None,
         transaction_type: Optional[TransactionTypeEnum] = None,
         limit: Optional[int] = None,
@@ -826,9 +766,10 @@ class Query:
             raise GraphQLError("El offset no puede ser negativo.")
 
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             actor = validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "transactions.read",
             )
 
@@ -852,11 +793,12 @@ class Query:
     @strawberry.field
     def roles(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         active_only: Optional[bool] = None,
     ) -> list[RoleType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.read")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.read")
             stmt = select(RoleModel).order_by(RoleModel.id)
             if active_only is True:
                 stmt = stmt.where(RoleModel.is_active.is_(True))
@@ -865,11 +807,12 @@ class Query:
     @strawberry.field
     def role(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         id: strawberry.ID,
     ) -> Optional[RoleType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.read")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.read")
             item = db.get(RoleModel, int(id))
             if item is None:
                 return None
@@ -878,11 +821,12 @@ class Query:
     @strawberry.field
     def permissions(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         active_only: Optional[bool] = None,
     ) -> list[PermissionType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.read")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.read")
             stmt = select(PermissionModel).order_by(PermissionModel.id)
             if active_only is True:
                 stmt = stmt.where(PermissionModel.is_active.is_(True))
@@ -891,11 +835,12 @@ class Query:
     @strawberry.field
     def role_permissions(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         role_id: strawberry.ID,
     ) -> list[RolePermissionType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.read")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.read")
             role_item = db.get(RoleModel, int(role_id))
             if role_item is None:
                 raise GraphQLError("El rol no existe.")
@@ -913,11 +858,12 @@ class Query:
     @strawberry.field
     def permission_catalog(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         resource: Optional[PermissionResource] = None,
     ) -> list[PermissionType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.read")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.read")
             return [
                 permission_to_type(p)
                 for p in listar_catalogo(db, resource)
@@ -927,10 +873,11 @@ class Query:
     def preview_role_permissions(
         self,
         input: SetRolePermissionsInput,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
     ) -> Optional[RolePermissionPlanType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.read")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.read")
             role, deseados = validar_propuesta(
                 db, input.role_id, input.permission_ids
             )
@@ -1291,7 +1238,7 @@ class Mutation:
     @strawberry.mutation
     def create_company_user(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: CreateCompanyUserInput
     ) -> CompanyUserType:
 
@@ -1300,6 +1247,7 @@ class Mutation:
         )
 
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
 
             company = db.get(
                 Company,
@@ -1318,7 +1266,7 @@ class Mutation:
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "company.users.write",
                 target_company_id=company_id,
             )
@@ -1434,11 +1382,12 @@ class Mutation:
     @strawberry.mutation
     def deactivate_company_user(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         id: strawberry.ID
     ) -> CompanyUserType:
 
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
 
             company_user = db.get(
                 CompanyUser,
@@ -1453,7 +1402,7 @@ class Mutation:
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "company.users.write",
                 target_company_id=company_user.company_id,
             )
@@ -1488,10 +1437,11 @@ class Mutation:
     @strawberry.mutation
     def create_account(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: CreateAccountInput,
     ) -> AccountGraphQL:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             company_id = int(input.company_id)
             company = db.get(Company, company_id)
             if company is None:
@@ -1501,7 +1451,7 @@ class Mutation:
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "accounts.write",
                 target_company_id=company_id,
             )
@@ -1540,10 +1490,11 @@ class Mutation:
     @strawberry.mutation
     def create_concept(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: CreateConceptInput,
     ) -> ConceptGraphQL:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             company_id = int(input.company_id)
             company = db.get(Company, company_id)
             if company is None:
@@ -1553,7 +1504,7 @@ class Mutation:
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "concepts.write",
                 target_company_id=company_id,
             )
@@ -1589,10 +1540,11 @@ class Mutation:
     @strawberry.mutation
     def assign_concept_to_account(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: AssignConceptToAccountInput,
     ) -> AccountConceptGraphQL:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             account = db.get(Account, int(input.account_id))
             concept = db.get(Concept, int(input.concept_id))
 
@@ -1609,7 +1561,7 @@ class Mutation:
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "concepts.write",
                 target_company_id=account.company_id,
             )
@@ -1642,18 +1594,19 @@ class Mutation:
     @strawberry.mutation
     def remove_concept_from_account(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         account_id: strawberry.ID,
         concept_id: strawberry.ID,
     ) -> bool:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             account = db.get(Account, int(account_id))
             if account is None:
                 raise GraphQLError("La cuenta no existe.")
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "concepts.write",
                 target_company_id=account.company_id,
             )
@@ -1681,10 +1634,11 @@ class Mutation:
     @strawberry.mutation
     def create_transaction(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: CreateTransactionInput,
     ) -> TransactionGraphQL:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             account = db.get(Account, int(input.account_id))
             if account is None:
                 raise GraphQLError("La cuenta no existe.")
@@ -1693,7 +1647,7 @@ class Mutation:
 
             actor = validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "transactions.write",
                 target_company_id=account.company_id,
             )
@@ -1745,17 +1699,18 @@ class Mutation:
     @strawberry.mutation
     def delete_transaction(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         id: strawberry.ID,
     ) -> TransactionGraphQL:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             transaction = db.get(Transaction, int(id))
             if transaction is None:
                 raise GraphQLError("El movimiento no existe.")
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "transactions.write",
                 target_company_id=transaction.account.company_id,
             )
@@ -1804,13 +1759,48 @@ class Mutation:
                     "contraseña incorrectos."
                 )
 
-            token = create_access_token(
-                user.id
-            )
+            membresias = db.scalars(
+                select(CompanyUser).where(
+                    CompanyUser.user_id == user.id,
+                    CompanyUser.is_active.is_(True),
+                ).order_by(CompanyUser.id)
+            ).all()
+
+            if not membresias:
+                raise GraphQLError(
+                    "El usuario no tiene una membresía activa."
+                )
+
+            if input.company_id is not None:
+                try:
+                    solicitada = int(input.company_id)
+                except (TypeError, ValueError) as exc:
+                    raise GraphQLError(
+                        "El companyId no es válido."
+                    ) from exc
+                elegida = next(
+                    (m for m in membresias if m.company_id == solicitada),
+                    None,
+                )
+                if elegida is None:
+                    raise GraphQLError(
+                        "El usuario no tiene una membresía activa "
+                        "en esa empresa."
+                    )
+            elif len(membresias) == 1:
+                elegida = membresias[0]
+            else:
+                raise GraphQLError(
+                    "El usuario pertenece a varias empresas; "
+                    "indica el companyId."
+                )
+
+            # El companyId del token sale SIEMPRE de la membresía en BD.
+            token = crear_token(elegida.id, elegida.company_id)
 
             return AuthPayload(
                 token=token,
-                token_type="Bearer",
+                token_type="bearer",
 
                 user=AuthUser(
                     id=strawberry.ID(
@@ -1828,7 +1818,7 @@ class Mutation:
     @strawberry.mutation
     def create_role(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: CreateRoleInput,
     ) -> RoleType:
         code = clean_required_text(input.code, "El código del rol").upper()
@@ -1840,7 +1830,8 @@ class Mutation:
         )
 
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.write")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.write")
 
             existing = db.scalar(
                 select(RoleModel).where(RoleModel.code == code)
@@ -1867,11 +1858,12 @@ class Mutation:
     @strawberry.mutation
     def deactivate_role(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         id: strawberry.ID,
     ) -> RoleType:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.write")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.write")
 
             role = db.get(RoleModel, int(id))
             if role is None:
@@ -1888,7 +1880,7 @@ class Mutation:
     @strawberry.mutation
     def create_permission(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: CreatePermissionInput,
     ) -> PermissionType:
         code = clean_required_text(input.code, "El código del permiso").lower()
@@ -1900,7 +1892,8 @@ class Mutation:
         )
 
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.write")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.write")
 
             existing = db.scalar(
                 select(PermissionModel).where(PermissionModel.code == code)
@@ -1929,11 +1922,12 @@ class Mutation:
     @strawberry.mutation
     def assign_permission_to_role(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: AssignPermissionToRoleInput,
     ) -> RolePermissionType:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.write")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.write")
 
             role_id = int(input.role_id)
             permission_id = int(input.permission_id)
@@ -1987,12 +1981,13 @@ class Mutation:
     @strawberry.mutation
     def remove_permission_from_role(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         role_id: strawberry.ID,
         permission_id: strawberry.ID,
     ) -> bool:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.write")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.write")
 
             rp = db.scalar(
                 select(RolePermissionModel).where(
@@ -2013,10 +2008,11 @@ class Mutation:
     @strawberry.mutation
     def assign_role(
         self,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
         input: AssignRoleInput,
     ) -> CompanyUserRoleType:
         with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
             company_user_id = int(input.company_user_id)
             role_id = int(input.role_id)
 
@@ -2028,7 +2024,7 @@ class Mutation:
 
             validar_acceso(
                 db,
-                actor_company_user_id,
+                actor_id,
                 "roles.write",
                 target_company_id=company_user.company_id,
             )
@@ -2080,10 +2076,11 @@ class Mutation:
     def set_role_permissions(
         self,
         input: SetRolePermissionsInput,
-        actor_company_user_id: strawberry.ID,
+        info: strawberry.Info,
     ) -> Optional[RolePermissionUpdateType]:
         with SessionLocal() as db:
-            validar_acceso(db, actor_company_user_id, "roles.write")
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "roles.write")
 
             try:
                 role, deseados = validar_propuesta(

@@ -1,0 +1,8 @@
+{
+  "input": {
+    "accountId": "16",
+    "conceptId": "7",
+    "transactionType": "INCOME",
+    "amount": "100.00"
+  }
+}

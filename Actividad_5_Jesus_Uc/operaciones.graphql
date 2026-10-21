@@ -1,32 +1,87 @@
+# =====================================================================
+# Actividad 6 - Control de acceso según el rol
+#
+# Flujo de 2 pasos en GraphiQL (http://127.0.0.1:8000/graphql):
+#   1) Ejecuta `Login` y copia el valor de `token`.
+#   2) En la pestaña "Headers" pega:
+#        { "Authorization": "Bearer TOKEN" }
+#      y ejecuta cualquier otra operación. Ya NO se envía actorCompanyUserId:
+#      la identidad sale del token.
+#
+# Las variables de cada operación están en variables/a6_*.json
+# (se generan con: python scripts/generar_variables_actividad6.py).
+# =====================================================================
+
+# Variables: variables/a6_login_<persona>.json
+#   { "input": { "email": "ana@actividad6.com", "password": "Secreto123!" } }
+# companyId es OPCIONAL: solo hace falta si el usuario tiene membresías
+# activas en varias empresas:
+#   { "input": { "email": "...", "password": "...", "companyId": "1" } }
+mutation Login($input: LoginInput!) {
+  login(input: $input) {
+    token
+    tokenType
+    user { id name email }
+  }
+}
+
+# Variables: variables/a6_create_account.json
+mutation CrearCuenta($input: CreateAccountInput!) {
+  createAccount(input: $input) { id name companyId }
+}
+
+# Variables: variables/a6_create_transaction.json
+mutation CrearMovimiento($input: CreateTransactionInput!) {
+  createTransaction(input: $input) { id amount transactionType capturedBy }
+}
+
+# Variables: variables/a6_assign_role_pedro_capturista.json
+mutation AsignarRol($input: AssignRoleInput!) {
+  assignRole(input: $input) { id role { code } isActive }
+}
+
+# Variables: variables/a6_accounts_empresa1.json
+query CuentasDeEmpresa($companyId: ID!) {
+  accounts(companyId: $companyId) { id name }
+}
+
+# =====================================================================
+# Operaciones de la actividad 5 (ahora también con token en el header)
+# =====================================================================
+
 fragment DatosPermiso on Permission {
   id
   code
   name
 }
 
-query ExplorarCatalogo($actor: ID!) {
-  cuentas: permissionCatalog(actorCompanyUserId: $actor, resource: ACCOUNTS) {
+# Variables: variables/e02_catalogo.json  ({})
+query ExplorarCatalogo {
+  cuentas: permissionCatalog(resource: ACCOUNTS) {
     ...DatosPermiso
   }
-  movimientos: permissionCatalog(actorCompanyUserId: $actor, resource: TRANSACTIONS) {
-    ...DatosPermiso
-  }
-}
-
-query CatalogoCompleto($actor: ID!) {
-  permissionCatalog(actorCompanyUserId: $actor) {
+  movimientos: permissionCatalog(resource: TRANSACTIONS) {
     ...DatosPermiso
   }
 }
 
-query CatalogoPorRecurso($actor: ID!, $recurso: PermissionResource) {
-  permissionCatalog(actorCompanyUserId: $actor, resource: $recurso) {
+# Variables: variables/e02_catalogo.json  ({})
+query CatalogoCompleto {
+  permissionCatalog {
     ...DatosPermiso
   }
 }
 
-query RevisarConfiguracion($actor: ID!, $input: SetRolePermissionsInput!) {
-  previewRolePermissions(actorCompanyUserId: $actor, input: $input) {
+# Variables: variables/e02_enum_invalido.json  ({ "recurso": "PAYMENTS" })
+query CatalogoPorRecurso($recurso: PermissionResource) {
+  permissionCatalog(resource: $recurso) {
+    ...DatosPermiso
+  }
+}
+
+# Variables: variables/e03_e04_e05_s1.json  (roleId + permissionIds)
+query RevisarConfiguracion($input: SetRolePermissionsInput!) {
+  previewRolePermissions(input: $input) {
     role { code }
     current { code }
     toActivate { code }
@@ -36,8 +91,9 @@ query RevisarConfiguracion($actor: ID!, $input: SetRolePermissionsInput!) {
   }
 }
 
-mutation AplicarConfiguracion($actor: ID!, $input: SetRolePermissionsInput!) {
-  setRolePermissions(actorCompanyUserId: $actor, input: $input) {
+# Variables: variables/e03_e04_e05_s1.json / e05_e09_s0.json / e08_vacia.json
+mutation AplicarConfiguracion($input: SetRolePermissionsInput!) {
+  setRolePermissions(input: $input) {
     role { code }
     activated { code }
     deactivated { code }
@@ -47,8 +103,9 @@ mutation AplicarConfiguracion($actor: ID!, $input: SetRolePermissionsInput!) {
   }
 }
 
-query ListarRoles($actor: ID!) {
-  roles(actorCompanyUserId: $actor) {
+# Variables: variables/e01_listar.json  ({})
+query ListarRoles {
+  roles {
     id
     code
     name
@@ -57,8 +114,9 @@ query ListarRoles($actor: ID!) {
   }
 }
 
-query ListarPermisos($actor: ID!) {
-  permissions(actorCompanyUserId: $actor) {
+# Variables: variables/e01_listar.json  ({})
+query ListarPermisos {
+  permissions {
     id
     code
     name
@@ -67,8 +125,9 @@ query ListarPermisos($actor: ID!) {
   }
 }
 
-query ListaDeUnRol($actor: ID!, $roleId: ID!) {
-  rolePermissions(actorCompanyUserId: $actor, roleId: $roleId) {
+# Variables: variables/e01_lista_capturista.json  ({ "roleId": "3" })
+query ListaDeUnRol($roleId: ID!) {
+  rolePermissions(roleId: $roleId) {
     id
     isActive
     role { code }

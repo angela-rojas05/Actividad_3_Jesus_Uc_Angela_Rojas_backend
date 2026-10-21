@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import jwt
 from graphql import GraphQLError
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,40 @@ from app.models import (
     PermissionModel,
     RolePermissionModel,
 )
+from app.security import ALGORITHM, JWT_SECRET
+
+
+def leer_actor(db: Session, info) -> int:
+    """Devuelve el company_user_id del actor a partir del token Bearer.
+
+    El token solo identifica (companyUserId, companyId); el rol y los
+    permisos se consultan en la BD en cada petición.
+    """
+    context = info.context
+    request = context.get("request") if context is not None else None
+    headers = getattr(request, "headers", None)
+    authorization = headers.get("authorization", "") if headers is not None else ""
+    if not authorization.startswith("Bearer "):
+        raise GraphQLError("Falta el token")
+
+    token = authorization[len("Bearer "):].strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+    except jwt.PyJWTError as exc:
+        raise GraphQLError("El token no es válido") from exc
+
+    company_user_id = payload.get("companyUserId")
+    company_id = payload.get("companyId")
+    if not isinstance(company_user_id, int) or not isinstance(company_id, int):
+        raise GraphQLError("El token no es válido")
+
+    actor = db.get(CompanyUser, company_user_id)
+    if actor is None or not actor.is_active:
+        raise GraphQLError("La membresía del token no existe o está inactiva")
+    if actor.company_id != company_id:
+        raise GraphQLError("El token no es válido")
+
+    return actor.id
 
 
 def exigir_permiso(db: Session, company_user_id: int, codigo: str) -> None:
@@ -30,11 +65,11 @@ def exigir_permiso(db: Session, company_user_id: int, codigo: str) -> None:
 
 def validar_acceso(
     db: Session,
-    actor_company_user_id: int | str,
+    actor_id: int | str,
     codigo: str,
     target_company_id: Optional[int] = None,
 ) -> CompanyUser:
-    actor = db.get(CompanyUser, int(actor_company_user_id))
+    actor = db.get(CompanyUser, int(actor_id))
     if actor is None:
         raise GraphQLError("La membresía del actor no existe.")
 

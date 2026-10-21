@@ -49,3 +49,10 @@ UPDATE roles SET is_active = 1 WHERE code = 'CONSULTA';
 UPDATE permissions SET is_active = 0 WHERE code = 'concepts.write';
 -- Permiso inactivo: restaurar
 UPDATE permissions SET is_active = 1 WHERE code = 'concepts.write';
+
+-- =========================================================
+-- Actividad 6 - Conteos antes/despues de los rechazos de escritura
+-- (ejecutar antes y despues de cada caso de escritura)
+-- =========================================================
+SELECT COUNT(*) AS total_accounts FROM accounts;
+SELECT COUNT(*) AS total_transactions FROM transactions;

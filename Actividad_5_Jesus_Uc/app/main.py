@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Actividad 5 - Roles y Permisos",
+    title="Actividad 6 - Control de acceso según el rol",
 
     description=(
         "Gestión de empresas, usuarios, cuentas, conceptos "

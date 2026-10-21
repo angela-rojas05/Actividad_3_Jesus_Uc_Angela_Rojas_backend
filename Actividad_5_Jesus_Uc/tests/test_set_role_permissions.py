@@ -16,14 +16,20 @@ from app.models import (
     User,
 )
 from app.schema import schema
+from app.security import crear_token
 from app.seed import seed_permissions, seed_role_permissions, seed_roles
+
+
+class _FakeRequest:
+    def __init__(self, token):
+        self.headers = {"authorization": f"Bearer {token}"}
 
 S0 = ["accounts.read", "concepts.read", "transactions.read", "transactions.write"]
 S1 = S0 + ["accounts.write"]
 
 PREVIEW = """
-query($input: SetRolePermissionsInput!, $actor: ID!) {
-  previewRolePermissions(input: $input, actorCompanyUserId: $actor) {
+query($input: SetRolePermissionsInput!) {
+  previewRolePermissions(input: $input) {
     role { code }
     current { code }
     toActivate { code }
@@ -35,8 +41,8 @@ query($input: SetRolePermissionsInput!, $actor: ID!) {
 """
 
 APPLY = """
-mutation($input: SetRolePermissionsInput!, $actor: ID!) {
-  setRolePermissions(input: $input, actorCompanyUserId: $actor) {
+mutation($input: SetRolePermissionsInput!) {
+  setRolePermissions(input: $input) {
     role { code }
     activated { code }
     deactivated { code }
@@ -88,12 +94,13 @@ def activos(codigo_rol="CAPTURISTA"):
 
 
 def ejecutar(query, ana, role_id, permission_ids):
+    # `ana` es el JWT de la administradora (header Authorization: Bearer ...)
     return schema.execute_sync(
         query,
         variable_values={
             "input": {"roleId": role_id, "permissionIds": permission_ids},
-            "actor": ana,
         },
+        context_value={"request": _FakeRequest(ana)},
     )
 
 
@@ -137,7 +144,7 @@ def ana():
         db.commit()
         ids = (company.id, user.id, cu.id)
 
-    yield str(ids[2])
+    yield crear_token(ids[2], ids[0])
 
     with SessionLocal() as db:
         db.query(CompanyUserRoleModel).filter(

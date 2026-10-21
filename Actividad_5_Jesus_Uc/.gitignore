@@ -6,5 +6,6 @@ __pycache__/
 .env
 .pytest_cache/
 *.log
-scripts/ids_demo.jsonevidencias/ids_demo.txt
+scripts/ids_demo.json
+evidencias/ids_demo.txt
 *.zip

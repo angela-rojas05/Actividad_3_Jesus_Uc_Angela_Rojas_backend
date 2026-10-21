@@ -1,0 +1,7 @@
+{
+  "input": {
+    "companyId": "24",
+    "accountType": "DEBIT",
+    "name": "Cuenta de prueba GraphiQL"
+  }
+}

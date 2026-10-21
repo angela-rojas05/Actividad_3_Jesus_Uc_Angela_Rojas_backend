@@ -1,7 +1,7 @@
 """Genera los archivos de variables de la Actividad 5.
 
 Uso:
-    python scripts/generar_variables_actividad5.py <id_membresia_ana>
+    python scripts/generar_variables_actividad5.py <token_jwt_de_ana>
 
 Los ids de roles y permisos se obtienen por GraphQL; nunca se escriben a mano.
 """
@@ -18,21 +18,22 @@ SALIDA = RAIZ / "variables"
 S0 = ["accounts.read", "concepts.read", "transactions.read", "transactions.write"]
 
 Q_ROLES = """
-query ListarRoles($actor: ID!) {
-  roles(actorCompanyUserId: $actor) { id code isActive }
+query ListarRoles {
+  roles { id code isActive }
 }
 """
 
 Q_PERMISOS = """
-query ListarPermisos($actor: ID!) {
-  permissions(actorCompanyUserId: $actor) { id code isActive }
+query ListarPermisos {
+  permissions { id code isActive }
 }
 """
 
 
-def graphql(query, variables):
+def graphql(query, variables, token):
     resp = requests.post(
-        URL, json={"query": query, "variables": variables}, timeout=30)
+        URL, json={"query": query, "variables": variables},
+        headers={"Authorization": f"Bearer {token}"}, timeout=30)
     resp.raise_for_status()
     cuerpo = resp.json()
     if cuerpo.get("errors"):
@@ -51,12 +52,12 @@ def escribir(nombre, datos):
 def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
-    actor = sys.argv[1]
+    token = sys.argv[1]
 
     roles = {r["code"]: r["id"]
-             for r in graphql(Q_ROLES, {"actor": actor})["roles"]}
+             for r in graphql(Q_ROLES, {}, token)["roles"]}
     permisos = {p["code"]: p["id"]
-                for p in graphql(Q_PERMISOS, {"actor": actor})["permissions"]}
+                for p in graphql(Q_PERMISOS, {}, token)["permissions"]}
 
     for codigo in ("CAPTURISTA", "ADMINISTRADOR", "CONSULTA"):
         if codigo not in roles:
@@ -70,12 +71,12 @@ def main():
     capturista = roles["CAPTURISTA"]
 
     def cfg(role_id, ids):
-        return {"actor": actor, "input": {"roleId": role_id, "permissionIds": ids}}
+        return {"input": {"roleId": role_id, "permissionIds": ids}}
 
-    escribir("e01_listar", {"actor": actor})
-    escribir("e01_lista_capturista", {"actor": actor, "roleId": capturista})
-    escribir("e02_catalogo", {"actor": actor})
-    escribir("e02_enum_invalido", {"actor": actor, "recurso": "PAYMENTS"})
+    escribir("e01_listar", {})
+    escribir("e01_lista_capturista", {"roleId": capturista})
+    escribir("e02_catalogo", {})
+    escribir("e02_enum_invalido", {"recurso": "PAYMENTS"})
     escribir("e03_e04_e05_s1", cfg(capturista, ids_s1))
     escribir("e05_e09_s0", cfg(capturista, ids_s0))
     escribir("e08_vacia", cfg(capturista, []))
