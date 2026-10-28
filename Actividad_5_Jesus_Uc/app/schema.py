@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
@@ -23,6 +23,7 @@ from app.models import (
 )
 from app.financial_models import Account, AccountConcept, Concept, Transaction, utcnow as financial_utcnow
 from app.access import leer_actor, validar_acceso
+from app.balances import MONEDA, calcular_balances
 from app.role_config import (
     PermissionResource,
     SetRolePermissionsInput,
@@ -69,6 +70,35 @@ def clean_required_text(
         )
 
     return value
+
+
+CENTAVO = Decimal("0.01")
+MONTO_MAXIMO = Decimal("1000000000000")  # Numeric(14, 2): hasta 12 enteros
+
+
+def normalize_transaction_date(value: Optional[datetime]) -> Optional[datetime]:
+    """Normaliza la fecha de operación a UTC (naive, como se guarda en la BD).
+
+    Un valor con zona se convierte a UTC; uno sin zona se toma como UTC.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def validate_amount(value: Decimal) -> Decimal:
+    """Acepta solo montos positivos, finitos y con a lo más dos decimales."""
+    if not value.is_finite():
+        raise GraphQLError("El monto del movimiento no es válido.")
+    if value <= 0:
+        raise GraphQLError("El monto del movimiento debe ser mayor que cero.")
+    if value != value.quantize(CENTAVO):
+        raise GraphQLError("El monto del movimiento admite máximo dos decimales.")
+    if value >= MONTO_MAXIMO:
+        raise GraphQLError("El monto del movimiento excede el máximo permitido.")
+    return value.quantize(CENTAVO)
 
 
 # =========================================================
@@ -213,6 +243,49 @@ class TransactionGraphQL:
     account: AccountGraphQL
     concept: ConceptGraphQL
     captured_by_user: UserType
+
+
+@strawberry.type(name="AccountBalance")
+class AccountBalanceType:
+    account_id: strawberry.ID
+    account_name: str
+    is_active: bool
+    opening_balance: Decimal
+    total_income: Decimal
+    total_expense: Decimal
+    profit: Decimal
+    closing_balance: Decimal
+    is_in_red: bool
+
+
+@strawberry.type(name="GeneralBalance")
+class GeneralBalanceType:
+    company_id: strawberry.ID
+    currency: str
+    from_date: date
+    to_date: date
+    opening_balance: Decimal
+    total_income: Decimal
+    total_expense: Decimal
+    profit: Decimal
+    closing_balance: Decimal
+    is_in_red: bool
+    accounts_in_red: int
+    accounts: list[AccountBalanceType]
+
+
+def account_balance_to_type(balance) -> AccountBalanceType:
+    return AccountBalanceType(
+        account_id=strawberry.ID(str(balance.account_id)),
+        account_name=balance.account_name,
+        is_active=balance.is_active,
+        opening_balance=balance.opening_balance,
+        total_income=balance.total_income,
+        total_expense=balance.total_expense,
+        profit=balance.profit,
+        closing_balance=balance.closing_balance,
+        is_in_red=balance.is_in_red,
+    )
 
 
 @strawberry.type(name="Role")
@@ -891,6 +964,68 @@ class Query:
                 final_count=plan.final_count,
             )
 
+    # -----------------------------------------------------
+    # BALANCES (Actividad 7)
+    # -----------------------------------------------------
+
+    @strawberry.field
+    def account_balance(
+        self,
+        info: strawberry.Info,
+        account_id: strawberry.ID,
+        from_date: date,
+        to_date: date,
+    ) -> AccountBalanceType:
+        with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "accounts.read")
+            actor = validar_acceso(db, actor_id, "transactions.read")
+
+            try:
+                id_cuenta = int(account_id)
+            except (TypeError, ValueError):
+                raise GraphQLError("Cuenta no disponible.")
+
+            # La empresa sale del token; una cuenta ajena e inexistente
+            # responden igual.
+            balances = calcular_balances(
+                db, actor.company_id, from_date, to_date, account_id=id_cuenta
+            )
+            if not balances:
+                raise GraphQLError("Cuenta no disponible.")
+            return account_balance_to_type(balances[0])
+
+    @strawberry.field
+    def general_balance(
+        self,
+        info: strawberry.Info,
+        from_date: date,
+        to_date: date,
+    ) -> GeneralBalanceType:
+        with SessionLocal() as db:
+            actor_id = leer_actor(db, info)
+            validar_acceso(db, actor_id, "accounts.read")
+            actor = validar_acceso(db, actor_id, "transactions.read")
+
+            balances = calcular_balances(db, actor.company_id, from_date, to_date)
+            apertura = sum((b.opening_balance for b in balances), Decimal("0.00"))
+            ingresos = sum((b.total_income for b in balances), Decimal("0.00"))
+            egresos = sum((b.total_expense for b in balances), Decimal("0.00"))
+            cierre = sum((b.closing_balance for b in balances), Decimal("0.00"))
+            return GeneralBalanceType(
+                company_id=strawberry.ID(str(actor.company_id)),
+                currency=MONEDA,
+                from_date=from_date,
+                to_date=to_date,
+                opening_balance=apertura,
+                total_income=ingresos,
+                total_expense=egresos,
+                profit=ingresos - egresos,
+                closing_balance=cierre,
+                is_in_red=cierre < 0,
+                accounts_in_red=sum(1 for b in balances if b.is_in_red),
+                accounts=[account_balance_to_type(b) for b in balances],
+            )
 
 
 # =========================================================
@@ -1674,9 +1809,7 @@ class Mutation:
             if input.transaction_type.value != concept.concept_type:
                 raise GraphQLError("El tipo de movimiento no es compatible con el tipo de concepto.")
 
-            amount = Decimal(input.amount)
-            if amount <= 0:
-                raise GraphQLError("El monto del movimiento debe ser mayor que cero.")
+            amount = validate_amount(Decimal(input.amount))
 
             now = financial_utcnow()
             transaction = Transaction(
@@ -1684,7 +1817,7 @@ class Mutation:
                 concept_id=concept.id,
                 transaction_type=input.transaction_type.value,
                 amount=amount,
-                transaction_date=input.transaction_date or now,
+                transaction_date=normalize_transaction_date(input.transaction_date) or now,
                 captured_at=now,
                 captured_by=actor.user_id,
                 short_description=input.short_description.strip() if input.short_description and input.short_description.strip() else None,
@@ -2121,15 +2254,17 @@ schema = strawberry.Schema(
     config=StrawberryConfig(
         scalar_map={
             datetime: strawberry.scalar(
-                name="Time",
+                name="DateTime",
 
                 description=(
-                    "Fecha y hora "
-                    "en formato ISO-8601"
+                    "Fecha y hora en formato ISO-8601. "
+                    "Los valores guardados son UTC; sin zona se toman como UTC."
                 ),
 
                 serialize=lambda value: (
-                    value.isoformat()
+                    value.isoformat() + "Z"
+                    if value.tzinfo is None
+                    else value.isoformat()
                 ),
 
                 parse_value=lambda value: (
