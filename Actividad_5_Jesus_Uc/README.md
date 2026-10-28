@@ -1,11 +1,23 @@
-# Sistema General de Ingresos — Unidad II, Actividad 6
+# Sistema General de Ingresos — Unidad II, Actividad 7
 
-Control de acceso según el rol con **JWT**. El cliente ya no envía `actorCompanyUserId`:
-la identidad sale del token que entrega `login`, y cada ruta protegida la lee del header
-`Authorization`. El rol y los permisos se consultan en la base de datos **en cada petición**
-(no viajan en el token), por eso un cambio de rol surte efecto con el mismo token.
+**Actividad 7:** balances por cuenta (`accountBalance`) y balance general (`generalBalance`),
+calculados en MySQL a partir de los movimientos (no se guardan). Parte de la Actividad 6, cuyo
+control de acceso con **JWT** se conserva: el cliente no envía `actorCompanyUserId`, la identidad sale
+del token que entrega `login` (header `Authorization`), y el rol y los permisos se consultan en la
+base de datos **en cada petición** (no viajan en el token).
+
+## Qué se agregó en la Actividad 7
+- `app/balances.py` — servicio de cálculo: una consulta agregada (`SUM` + `CASE`, `LEFT JOIN` desde las cuentas, filtros del movimiento en el `ON`). Importes en `Decimal`, resultados vacíos en `0.00`.
+- `app/schema.py` — tipos `AccountBalance` y `GeneralBalance`, consultas `accountBalance(accountId, fromDate, toDate)` y `generalBalance(fromDate, toDate)`; `Transaction` ya expone `transactionDate` y `capturedAt`; `createTransaction` acepta `transactionDate` opcional, lo normaliza a **UTC** y rechaza montos no positivos, no finitos o con más de 2 decimales.
+- El escalar de fecha y hora se llama ahora `DateTime` (antes `Time`) y se devuelve con `Z`: **todas las fechas y horas son UTC**; un valor sin zona se toma como UTC. Las filas previas ya estaban en UTC.
+- Reglas: periodo en días completos UTC (`transaction_date >= fromDate 00:00Z` y `< toDate + 1 día`), saldo inicial = movimientos anteriores al inicio, `profit = ingresos − egresos`, `isInRed = saldo final < 0`, moneda `MXN`. Se usa siempre `transaction_date`, nunca `captured_at`.
+- Ambas consultas exigen `accounts.read` y `transactions.read` y filtran por la empresa del token. Una cuenta ajena e inexistente responden lo mismo (`Cuenta no disponible.`).
+- No se agregaron índices ni se cambió ninguna tabla, por lo que no hay migración.
 
 ## Integrantes y aportaciones
+- Integrantes de la Actividad 7: Jesús Omar Uc Domínguez · Ángela Yaritzi Rojas Brito. *(completar aportaciones de cada uno)*
+
+Aportaciones de actividades anteriores:
 - Jesús Omar Uc Domínguez — implementó la configuración de permisos por rol (`app/role_config.py` y `app/schema.py`), escribió las pruebas automatizadas (`tests/test_set_role_permissions.py`) y capturó las evidencias E01 a E05 (Actividad 5).
 - Ángela Yaritzi Rojas Brito — preparó su propio entorno y base de datos, capturó las evidencias E06 a E10, generó la matriz final (`configuracion_final.json`), completó `evidencias.md` y redactó `investigacion.md` (Actividad 5).
 
@@ -31,7 +43,40 @@ uvicorn app.main:app
 ```
 GraphiQL: http://127.0.0.1:8000/graphql
 
-## Datos de demo
+## Datos de la Actividad 7 (preparar y restaurar)
+```
+python scripts/preparar_demo_actividad7.py
+python scripts/generar_variables_actividad7.py
+```
+El primero es repetible y **restaura** el estado inicial (vuelve a crear los movimientos de la guía y
+reactiva cuentas); imprime los IDs y escribe `scripts/ids_demo_a7.json` (ignorado por Git). El segundo
+genera `variables/a7_*.json` (sin tokens). Contraseña de todos: **`Secreto123!`**
+
+| Empresa | Persona | Correo | Rol |
+|---|---|---|---|
+| A (referencia) | Ana | ana@actividad7.com | ADMINISTRADOR |
+| A | Luis | luis@actividad7.com | CONTADOR |
+| A | María | maria@actividad7.com | CAPTURISTA |
+| A | Pedro | pedro@actividad7.com | CONSULTA |
+| B (laboratorio) | Admin B | adminb@actividad7.com | ADMINISTRADOR |
+| C (sin cuentas) | Admin C | adminc@actividad7.com | ADMINISTRADOR |
+
+- **Empresa A:** cuentas Banco, Caja y Ahorro con los 6 movimientos de la guía (a las 12:00:00Z). Es el conjunto de B01, B02, B07, B08, B09, B12 (como Ana), B13 y B14.
+- **Empresa B:** `Cuenta Prueba B`, vacía, para los casos que capturan movimientos (B04, B05, B06, B15) y como cuenta ajena en B12. Entre un caso y otro ejecuta `python scripts/casos_b07_b08.py restaurar` para dejarla vacía de nuevo.
+- **Empresa C:** sin cuentas (B03).
+- **B07 y B08** (no hay operación para desactivar cuentas): `python scripts/casos_b07_b08.py b07` desactiva el egreso de 1000.00 de Banco; `... b08` desactiva la cuenta Banco; `... restaurar` lo deja como al inicio.
+- **B14:** con Ana, `AplicarConfiguracion` con `variables/a7_b14_quitar_transactions_read.json` y, al terminar, con `a7_b14_restaurar_permisos.json`.
+
+Consultas y variables: `operaciones.graphql` (sección Actividad 7). Resultados de referencia (26 al 30 de octubre de 2026):
+
+| Cuenta | Saldo inicial | Ingresos | Egresos | Profit | Saldo final | En rojo |
+|---|---|---|---|---|---|---|
+| Banco | 1000.00 | 3000.00 | 2200.00 | 800.00 | 1800.00 | No |
+| Caja | 0.00 | 500.00 | 700.00 | −200.00 | −200.00 | Sí |
+| Ahorro | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | No |
+| **General** | 1000.00 | 3500.00 | 2900.00 | 600.00 | 1600.00 | No (`accountsInRed: 1`) |
+
+## Datos de demo (Actividad 6)
 ```
 python scripts/preparar_demo_actividad6.py
 python scripts/generar_variables_actividad6.py
@@ -62,6 +107,7 @@ Rutas públicas (sin token): `login`, `createCompany`, `createCompanyAdmin`, `co
 ## Pruebas y scripts
 ```
 python -m pytest -v                          # todas las pruebas
+python -m pytest tests/test_balances.py -v   # balances (Actividad 7): B01-B06, B10-B13, B15 y validación de montos
 python -m pytest tests/test_control_acceso.py -v   # los 9 casos de la Actividad 6
 python scripts/correr_actividad6.py          # los 9 casos contra http://127.0.0.1:8000/graphql (API levantada)
 ```
@@ -76,4 +122,4 @@ python scripts/generar_configuracion_final.py
 `scripts/generar_variables_actividad5.py <TOKEN_DE_ANA>` regenera `variables/e*.json`.
 
 ## Archivos
-`investigacion.md` · `operaciones.graphql` · `variables/` · `configuracion_inicial.json` · `configuracion_final.json` · `comprobaciones.sql` · `evidencias.md` · `act5_evidencias/`
+`Evidencias act7.md` (entrega: `evidencias.md`) · `act7_evidencias/` · `investigacion.md` · `operaciones.graphql` · `variables/` · `configuracion_inicial.json` · `configuracion_final.json` · `comprobaciones.sql` · `evidencias.md` · `act5_evidencias/`

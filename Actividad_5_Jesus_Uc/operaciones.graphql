@@ -138,3 +138,97 @@ query ListaDeUnRol($roleId: ID!) {
     }
   }
 }
+
+
+# =====================================================================
+# Actividad 7 - Balances por cuenta y general
+#
+# Datos:      python scripts/preparar_demo_actividad7.py
+# Variables:  python scripts/generar_variables_actividad7.py  (variables/a7_*.json)
+# Entra con `Login` (variables/a7_login_<persona>.json) y pega el token en
+# Headers: { "Authorization": "Bearer TOKEN" }.  Personas: ana (ADMINISTRADOR),
+# luis (CONTADOR), maria (CAPTURISTA), pedro (CONSULTA) de la empresa A;
+# adminb (empresa B, laboratorio) y adminc (empresa C, sin cuentas).
+# Todos los importes están en MXN y se devuelven como cadenas con 2 decimales.
+# =====================================================================
+
+# Variables: variables/a7_balance_banco.json | a7_balance_caja.json | a7_balance_ahorro.json
+#            variables/a7_balance_banco_dia28.json (B02) | a7_balance_cuenta_b.json (empresa B)
+#   { "accountId": "ID_REAL", "from": "2026-10-26", "to": "2026-10-30" }
+query BalanceDeUnaCuenta($accountId: ID!, $from: Date!, $to: Date!) {
+  accountBalance(accountId: $accountId, fromDate: $from, toDate: $to) {
+    accountId
+    accountName
+    isActive
+    openingBalance
+    totalIncome
+    totalExpense
+    profit
+    closingBalance
+    isInRed
+  }
+}
+
+# Variables: variables/a7_balance_general.json  ({ "from": "2026-10-26", "to": "2026-10-30" })
+query BalanceDeLaEmpresa($from: Date!, $to: Date!) {
+  generalBalance(fromDate: $from, toDate: $to) {
+    companyId
+    currency
+    fromDate
+    toDate
+    openingBalance
+    totalIncome
+    totalExpense
+    profit
+    closingBalance
+    isInRed
+    accountsInRed
+    accounts {
+      accountId
+      accountName
+      isActive
+      closingBalance
+      isInRed
+    }
+  }
+}
+
+# B04, B05, B06 y B15 capturan movimientos con fecha de operación (transactionDate,
+# UTC).  Si se omite, se usa el instante actual del servidor; capturedAt siempre lo
+# pone el servidor.  Usa a Admin B (variables/a7_login_adminb.json) y la cuenta de
+# la empresa B.  Variables: variables/a7_b04_*.json, a7_b05_*.json, a7_b06_*.json,
+# a7_b15_egreso_50.json, a7_b13_captura_consulta.json (Pedro, debe rechazarse).
+mutation CapturarMovimiento($input: CreateTransactionInput!) {
+  createTransaction(input: $input) {
+    id
+    amount
+    transactionType
+    transactionDate
+    capturedAt
+  }
+}
+
+# B09: otro concepto permitido para Banco.  Variables: variables/a7_b09_asignar_concepto.json
+# (entra con Ana).  No agrega movimientos: los balances no cambian.
+mutation AsignarConcepto($input: AssignConceptToAccountInput!) {
+  assignConceptToAccount(input: $input) {
+    id
+    accountId
+    conceptId
+    isActive
+  }
+}
+
+# B07: desactivar un movimiento.  Se prepara con `python scripts/casos_b07_b08.py b07`
+# o con esta mutación (id del movimiento en { "id": "..." }).
+mutation DesactivarMovimiento($id: ID!) {
+  deleteTransaction(id: $id) {
+    id
+    isActive
+  }
+}
+
+# B14: quitar y devolver transactions.read al rol CONSULTA (entra con Ana).
+# Variables: variables/a7_b14_quitar_transactions_read.json y
+#            variables/a7_b14_restaurar_permisos.json
+# La mutación AplicarConfiguracion (más arriba) recibe estas variables.

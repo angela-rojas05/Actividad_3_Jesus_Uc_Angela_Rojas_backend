@@ -1,0 +1,9 @@
+{
+  "input": {
+    "accountId": "21",
+    "conceptId": "11",
+    "transactionType": "INCOME",
+    "amount": "100.00",
+    "transactionDate": "2026-10-31T00:00:00Z"
+  }
+}
