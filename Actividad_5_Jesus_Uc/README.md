@@ -15,7 +15,9 @@ base de datos **en cada petición** (no viajan en el token).
 - No se agregaron índices ni se cambió ninguna tabla, por lo que no hay migración.
 
 ## Integrantes y aportaciones
-- Integrantes de la Actividad 7: Jesús Omar Uc Domínguez · Ángela Yaritzi Rojas Brito. *(completar aportaciones de cada uno)*
+- Jesús Omar Uc Domínguez — implementó el cálculo de balances (`app/balances.py`) y las consultas `accountBalance` y `generalBalance` con sus tipos en `app/schema.py`, la fecha de operación en UTC y la validación de montos; ejecutó en GraphiQL los casos B01 a B03 y B09 a B13 y capturó sus evidencias.
+- Ángela Yaritzi Rojas Brito — preparó el conjunto de datos y los scripts de restauración (`scripts/preparar_demo_actividad7.py`, `scripts/casos_b07_b08.py`), escribió las pruebas automatizadas (`tests/test_balances.py`), generó las variables y `operaciones.graphql`, y capturó las evidencias de los casos B04 a B08, B14 y B15 y de `pytest`.
+- Ambos revisaron la lista de verificación de la guía y redactaron `Evidencias act7.md` y la explicación de Banco y Caja.
 
 Aportaciones de actividades anteriores:
 - Jesús Omar Uc Domínguez — implementó la configuración de permisos por rol (`app/role_config.py` y `app/schema.py`), escribió las pruebas automatizadas (`tests/test_set_role_permissions.py`) y capturó las evidencias E01 a E05 (Actividad 5).
