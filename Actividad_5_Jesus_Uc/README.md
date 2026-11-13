@@ -1,4 +1,26 @@
-# Sistema General de Ingresos — Unidad II, Actividad 7
+# Sistema General de Ingresos — Unidad III, Actividad 1
+
+**Integrantes:** Jesús Omar Uc Domínguez · Ángela Yaritzi Rojas Brito
+
+## Unidad III, Actividad 1: dashboard financiero
+Cliente web (HTML + CSS + JavaScript) en la carpeta `dashboard/` de la raíz del repositorio. Inicia
+sesión con la mutación `login`, pide el período y pinta los indicadores de `generalBalance` con
+`Authorization: Bearer`. Detalle, boceto, evidencias y guion de la demo: `../dashboard/README.md`.
+
+```
+docker compose up -d                          # MySQL (puerto 3307)
+python scripts/preparar_demo_actividad7.py    # datos de demostración
+uvicorn app.main:app                          # API (puerto 8000)
+```
+- Dashboard: http://127.0.0.1:8000/dashboard/ (lo sirve el mismo API, no hay otro proceso)
+- GraphiQL: http://127.0.0.1:8000/graphql
+- Usuario de prueba: `ana@actividad7.com` / `Secreto123!` · Período de demostración: 2026-10-26 a 2026-10-30
+
+Cambios en el backend para esta actividad (`app/main.py`): se sirve `dashboard/` en `/dashboard/`
+(mismo origen) y se agregó CORS de desarrollo para `localhost`/`127.0.0.1` en los puertos 5173 y 5500
+(configurable con `CORS_ORIGINS` en `.env`). No cambiaron el esquema GraphQL ni las tablas.
+
+## Unidad II, Actividad 7
 
 **Actividad 7:** balances por cuenta (`accountBalance`) y balance general (`generalBalance`),
 calculados en MySQL a partir de los movimientos (no se guardan). Parte de la Actividad 6, cuyo

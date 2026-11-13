@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="Segoe UI, Arial, sans-serif" font-size="14">
+  <title>Boceto (wireframe) de la vista principal del dashboard financiero</title>
+  <rect width="900" height="640" fill="#ffffff"/>
+  <text x="30" y="34" font-size="20" font-weight="700" fill="#12233d">Boceto · Vista principal del dashboard financiero</text>
+  <text x="30" y="54" fill="#55627a">Unidad III · Actividad 1 — orden de lectura: período y totales primero, después riesgo y detalle</text>
+
+  <g fill="none" stroke="#12233d" stroke-width="2">
+    <!-- 1. Encabezado -->
+    <rect x="250" y="80" width="620" height="60" fill="#e8edf5"/>
+    <!-- 2. Controles -->
+    <rect x="250" y="160" width="620" height="54"/>
+    <rect x="266" y="172" width="130" height="30" stroke-width="1"/>
+    <rect x="410" y="172" width="130" height="30" stroke-width="1"/>
+    <rect x="554" y="172" width="110" height="30" stroke-width="1" fill="#d5ebe9"/>
+    <!-- 3. Indicadores -->
+    <rect x="250" y="234" width="112" height="84"/>
+    <rect x="377" y="234" width="112" height="84"/>
+    <rect x="504" y="234" width="112" height="84"/>
+    <rect x="631" y="234" width="112" height="84"/>
+    <rect x="758" y="234" width="112" height="84" stroke-width="3"/>
+    <!-- 4. Riesgo -->
+    <rect x="250" y="338" width="300" height="48"/>
+    <rect x="570" y="338" width="300" height="48"/>
+    <!-- 5. Detalle -->
+    <rect x="250" y="406" width="620" height="200"/>
+    <rect x="250" y="406" width="620" height="34" fill="#e8edf5"/>
+    <path d="M250 480H870M250 520H870M250 560H870" stroke-width="1"/>
+  </g>
+
+  <g fill="#12233d">
+    <text x="266" y="105" font-weight="700" font-size="16">Dashboard financiero</text>
+    <text x="266" y="126" font-size="12">Período: 26 oct 2026 – 30 oct 2026</text>
+    <text x="852" y="105" text-anchor="end" font-size="12">Nombre de la empresa · MXN · usuario</text>
+    <text x="852" y="126" text-anchor="end" font-size="12">[ Cerrar sesión ]</text>
+
+    <text x="276" y="192" font-size="12">Desde (fromDate)</text>
+    <text x="420" y="192" font-size="12">Hasta (toDate)</text>
+    <text x="578" y="192" font-size="12">Actualizar</text>
+
+    <g font-size="12" text-anchor="middle">
+      <text x="306" y="262">Saldo inicial</text><text x="306" y="292" font-size="16" font-weight="700">0,000.00</text>
+      <text x="433" y="262">Ingresos</text><text x="433" y="292" font-size="16" font-weight="700">0,000.00</text>
+      <text x="560" y="262">Egresos</text><text x="560" y="292" font-size="16" font-weight="700">0,000.00</text>
+      <text x="687" y="262">Profit</text><text x="687" y="292" font-size="16" font-weight="700">0,000.00</text>
+      <text x="814" y="262">Saldo final</text><text x="814" y="292" font-size="16" font-weight="700">0,000.00</text>
+    </g>
+
+    <text x="266" y="367" font-size="13">Saldo general en rojo: Sí / No</text>
+    <text x="586" y="367" font-size="13">Cuentas en rojo: N (nombres)</text>
+
+    <g font-size="12">
+      <text x="266" y="428">Cuenta</text><text x="380" y="428">Saldo inicial</text><text x="480" y="428">Ingresos</text>
+      <text x="570" y="428">Egresos</text><text x="660" y="428">Profit</text><text x="760" y="428">Saldo final</text>
+      <text x="266" y="465">Banco</text><text x="266" y="505">Caja  [En rojo]</text><text x="266" y="545">Ahorro</text>
+      <text x="760" y="505" fill="#b3261e" font-weight="700">-000.00</text>
+      <text x="266" y="590" fill="#55627a">Estado vacío: "La empresa no tiene cuentas registradas"</text>
+    </g>
+  </g>
+
+  <!-- Nombres de los bloques -->
+  <g fill="#0b7a75" font-weight="700">
+    <text x="30" y="106">1. Encabezado</text>
+    <text x="30" y="184">2. Controles de período</text>
+    <text x="30" y="272">3. Indicadores generales</text>
+    <text x="30" y="360">4. Estado de riesgo</text>
+    <text x="30" y="500">5. Detalle por cuenta</text>
+  </g>
+  <g fill="#55627a" font-size="12">
+    <text x="30" y="124">empresa, MXN y período</text>
+    <text x="30" y="202">fechas, actualizar, salir</text>
+    <text x="30" y="290">¿cómo va la empresa?</text>
+    <text x="30" y="306">(generalBalance)</text>
+    <text x="30" y="378">isInRed · accountsInRed</text>
+    <text x="30" y="518">¿en qué cuenta?</text>
+    <text x="30" y="534">(generalBalance.accounts)</text>
+  </g>
+  <g stroke="#0b7a75" stroke-width="1.5">
+    <path d="M205 102H246M205 180H246M205 268H246M205 356H246M205 496H246"/>
+  </g>
+</svg>
