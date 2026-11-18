@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard financiero · Sistema General de Ingresos</title>
+  <title>Sistema General de Ingresos · Dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -32,120 +32,361 @@
     </form>
   </main>
 
-  <!-- =================== DASHBOARD =================== -->
+  <!-- =================== APLICACIÓN =================== -->
   <div id="vista-dashboard" hidden>
 
-    <!-- Bloque 1: encabezado -->
+    <!-- Encabezado común: empresa de la sesión y Cerrar sesión -->
     <header class="encabezado">
       <div>
-        <h1>Dashboard financiero</h1>
+        <h1 id="titulo-app">Dashboard financiero</h1>
         <p id="periodo-consultado" class="encabezado-periodo">Período: sin consultar</p>
       </div>
       <div class="encabezado-derecha">
         <div class="encabezado-empresa">
           <strong id="empresa-nombre">Empresa</strong>
-          <span><span id="moneda">MXN</span> · <span id="usuario-nombre"></span></span>
+          <span><span id="moneda-bloque"><span id="moneda">MXN</span> · </span><span id="usuario-nombre"></span>
+            <span id="usuario-rol"></span></span>
         </div>
         <button id="btn-salir" type="button" class="btn-salir">Cerrar sesión</button>
       </div>
     </header>
 
-    <main class="contenido">
+    <div class="marco">
 
-      <!-- Bloque 2: controles de período -->
-      <form id="form-periodo" class="controles" novalidate>
-        <div class="campo">
-          <label for="fecha-desde">Desde</label>
-          <input id="fecha-desde" type="date" required>
-        </div>
-        <div class="campo">
-          <label for="fecha-hasta">Hasta</label>
-          <input id="fecha-hasta" type="date" required>
-        </div>
-        <button id="btn-actualizar" type="submit" class="btn-primario">Actualizar</button>
-        <span id="estado-carga" class="estado-carga" role="status" hidden>Consultando…</span>
-      </form>
+      <!-- Menú: distingue el dashboard financiero del administrativo -->
+      <nav class="menu" aria-label="Secciones">
+        <p class="menu-grupo">Financiero</p>
+        <a href="#/financiero" data-seccion="financiero">Resumen financiero</a>
+        <p class="menu-grupo">Administración</p>
+        <a href="#/admin/usuarios" data-seccion="usuarios">Usuarios</a>
+        <a href="#/admin/cuentas" data-seccion="cuentas">Cuentas</a>
+        <a href="#/admin/conceptos" data-seccion="conceptos">Conceptos</a>
+      </nav>
 
-      <p id="dash-aviso" class="aviso" role="alert" hidden></p>
+      <main class="contenido">
 
-      <div id="resultados" hidden>
+        <!-- ============ DASHBOARD FINANCIERO (actividad 1) ============ -->
+        <section id="sec-financiero" class="seccion" hidden>
 
-        <!-- Bloque 3: indicadores generales -->
-        <section aria-labelledby="titulo-indicadores">
-          <h2 id="titulo-indicadores">Indicadores generales</h2>
-          <div class="tarjetas">
-            <article class="tarjeta">
-              <h3>Saldo inicial</h3>
-              <p id="kpi-inicial" class="importe">—</p>
-              <span class="tarjeta-nota">Dinero al inicio del período</span>
-            </article>
-            <article class="tarjeta">
-              <h3>Ingresos</h3>
-              <p id="kpi-ingresos" class="importe">—</p>
-              <span class="tarjeta-nota">Entradas en el período</span>
-            </article>
-            <article class="tarjeta">
-              <h3>Egresos</h3>
-              <p id="kpi-egresos" class="importe">—</p>
-              <span class="tarjeta-nota">Salidas en el período</span>
-            </article>
-            <article class="tarjeta">
-              <h3>Profit</h3>
-              <p id="kpi-profit" class="importe">—</p>
-              <span class="tarjeta-nota">Ingresos − egresos</span>
-            </article>
-            <article id="tarjeta-final" class="tarjeta tarjeta-final">
-              <h3>Saldo final</h3>
-              <p id="kpi-final" class="importe">—</p>
-              <span class="tarjeta-nota">Saldo inicial + profit</span>
-            </article>
-          </div>
-          <p id="sin-movimientos" class="vacio" hidden>
-            No hay movimientos en este período: ingresos y egresos están en 0.00.
-          </p>
-        </section>
-
-        <!-- Bloque 4: estado de riesgo -->
-        <section aria-labelledby="titulo-riesgo">
-          <h2 id="titulo-riesgo">Estado de riesgo</h2>
-          <div class="riesgo">
-            <div id="riesgo-general" class="riesgo-item">
-              <span class="riesgo-etiqueta">Saldo general en rojo</span>
-              <strong id="riesgo-general-valor">—</strong>
+          <!-- Bloque 2: controles de período -->
+          <form id="form-periodo" class="controles" novalidate>
+            <div class="campo">
+              <label for="fecha-desde">Desde</label>
+              <input id="fecha-desde" type="date" required>
             </div>
-            <div id="riesgo-cuentas" class="riesgo-item">
-              <span class="riesgo-etiqueta">Cuentas en rojo</span>
-              <strong id="riesgo-cuentas-valor">—</strong>
-              <span id="riesgo-cuentas-nombres" class="riesgo-nombres"></span>
+            <div class="campo">
+              <label for="fecha-hasta">Hasta</label>
+              <input id="fecha-hasta" type="date" required>
+            </div>
+            <button id="btn-actualizar" type="submit" class="btn-primario">Actualizar</button>
+            <span id="estado-carga" class="estado-carga" role="status" hidden>Consultando…</span>
+          </form>
+
+          <p id="dash-aviso" class="aviso" role="alert" hidden></p>
+
+          <div id="resultados" hidden>
+
+            <!-- Bloque 3: indicadores generales -->
+            <section aria-labelledby="titulo-indicadores">
+              <h2 id="titulo-indicadores">Indicadores generales</h2>
+              <div class="tarjetas">
+                <article class="tarjeta">
+                  <h3>Saldo inicial</h3>
+                  <p id="kpi-inicial" class="importe">—</p>
+                  <span class="tarjeta-nota">Dinero al inicio del período</span>
+                </article>
+                <article class="tarjeta">
+                  <h3>Ingresos</h3>
+                  <p id="kpi-ingresos" class="importe">—</p>
+                  <span class="tarjeta-nota">Entradas en el período</span>
+                </article>
+                <article class="tarjeta">
+                  <h3>Egresos</h3>
+                  <p id="kpi-egresos" class="importe">—</p>
+                  <span class="tarjeta-nota">Salidas en el período</span>
+                </article>
+                <article class="tarjeta">
+                  <h3>Profit</h3>
+                  <p id="kpi-profit" class="importe">—</p>
+                  <span class="tarjeta-nota">Ingresos − egresos</span>
+                </article>
+                <article id="tarjeta-final" class="tarjeta tarjeta-final">
+                  <h3>Saldo final</h3>
+                  <p id="kpi-final" class="importe">—</p>
+                  <span class="tarjeta-nota">Saldo inicial + profit</span>
+                </article>
+              </div>
+              <p id="sin-movimientos" class="vacio" hidden>
+                No hay movimientos en este período: ingresos y egresos están en 0.00.
+              </p>
+            </section>
+
+            <!-- Bloque 4: estado de riesgo -->
+            <section aria-labelledby="titulo-riesgo">
+              <h2 id="titulo-riesgo">Estado de riesgo</h2>
+              <div class="riesgo">
+                <div id="riesgo-general" class="riesgo-item">
+                  <span class="riesgo-etiqueta">Saldo general en rojo</span>
+                  <strong id="riesgo-general-valor">—</strong>
+                </div>
+                <div id="riesgo-cuentas" class="riesgo-item">
+                  <span class="riesgo-etiqueta">Cuentas en rojo</span>
+                  <strong id="riesgo-cuentas-valor">—</strong>
+                  <span id="riesgo-cuentas-nombres" class="riesgo-nombres"></span>
+                </div>
+              </div>
+            </section>
+
+            <!-- Bloque 5: detalle por cuenta -->
+            <section aria-labelledby="titulo-detalle">
+              <h2 id="titulo-detalle">Detalle por cuenta</h2>
+              <p id="sin-cuentas" class="vacio" hidden>
+                Esta empresa todavía no tiene cuentas registradas, por eso no hay detalle que mostrar.
+              </p>
+              <div id="tabla-contenedor" class="tabla-contenedor">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Cuenta</th>
+                      <th scope="col" class="num">Saldo inicial (MXN)</th>
+                      <th scope="col" class="num">Ingresos (MXN)</th>
+                      <th scope="col" class="num">Egresos (MXN)</th>
+                      <th scope="col" class="num">Profit (MXN)</th>
+                      <th scope="col" class="num">Saldo final (MXN)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabla-cuentas"></tbody>
+                </table>
+              </div>
+            </section>
+
+          </div>
+        </section>
+
+        <!-- ======================= USUARIOS ======================= -->
+        <section id="sec-usuarios" class="seccion" hidden>
+          <div class="seccion-titulo">
+            <h2 class="titulo-pantalla">Usuarios</h2>
+            <p class="pregunta">¿Quién pertenece a la empresa?</p>
+          </div>
+
+          <p id="usr-aviso" class="aviso" role="alert" hidden></p>
+          <p id="usr-ok" class="ok" role="status" hidden></p>
+
+          <div class="columnas">
+            <div class="columna-principal">
+              <div class="conteos">
+                <article class="conteo">
+                  <h3>Usuarios activos</h3>
+                  <p id="usr-activos">—</p>
+                </article>
+                <article id="usr-admin-tarjeta" class="conteo">
+                  <h3>Administrador principal</h3>
+                  <p id="usr-admin">—</p>
+                </article>
+                <article class="conteo">
+                  <h3>Inactivos</h3>
+                  <p id="usr-inactivos">—</p>
+                </article>
+              </div>
+
+              <div class="barra">
+                <label class="oculto" for="usr-buscar">Buscar por nombre o correo</label>
+                <input id="usr-buscar" type="search" placeholder="Buscar por nombre o correo">
+                <label class="oculto" for="usr-filtro">Estado</label>
+                <select id="usr-filtro">
+                  <option value="todos">Todos</option>
+                  <option value="activos">Solo activos</option>
+                  <option value="inactivos">Solo inactivos</option>
+                </select>
+                <button id="usr-nuevo" type="button" class="btn-primario" hidden>Nuevo usuario</button>
+              </div>
+
+              <p id="usr-vacio" class="vacio" hidden></p>
+              <div id="usr-tabla-contenedor" class="tabla-contenedor" hidden>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Nombre</th>
+                      <th scope="col">Correo</th>
+                      <th scope="col">Rol</th>
+                      <th scope="col">Administrador</th>
+                      <th scope="col">Estado</th>
+                      <th scope="col" class="col-accion">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usr-tabla"></tbody>
+                </table>
+              </div>
+              <p class="nota">Los datos salen de <code>companyUsers</code>. Desactivar no borra a la
+                persona: deja de operar en la empresa y su historial se conserva.</p>
+            </div>
+
+            <form id="usr-form" class="panel" novalidate hidden>
+              <h3>Nuevo usuario</h3>
+              <p id="usr-form-aviso" class="aviso" role="alert" hidden></p>
+              <label for="usr-nombre">Nombre</label>
+              <input id="usr-nombre" type="text" autocomplete="off" required>
+              <label for="usr-correo">Correo</label>
+              <input id="usr-correo" type="email" autocomplete="off" required>
+              <label for="usr-password">Contraseña</label>
+              <input id="usr-password" type="password" autocomplete="new-password" required>
+              <p class="nota">Mínimo 8 caracteres. Se crea con el rol Consulta; no se crea como
+                administrador.</p>
+              <div class="panel-botones">
+                <button type="submit" class="btn-primario">Guardar</button>
+                <button type="button" class="btn-secundario" data-cerrar="usr-form">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- ======================== CUENTAS ======================== -->
+        <section id="sec-cuentas" class="seccion" hidden>
+          <div class="seccion-titulo">
+            <h2 class="titulo-pantalla">Cuentas</h2>
+            <p class="pregunta">¿Dónde está el dinero?</p>
+          </div>
+
+          <p id="cta-aviso" class="aviso" role="alert" hidden></p>
+          <p id="cta-ok" class="ok" role="status" hidden></p>
+
+          <div class="columnas">
+            <div class="columna-principal">
+              <div class="barra">
+                <div id="cta-filtros" class="chips" role="group" aria-label="Filtrar por tipo"></div>
+                <label class="interruptor">
+                  <input id="cta-solo-activas" type="checkbox"> Activas
+                </label>
+                <button id="cta-nueva" type="button" class="btn-primario" hidden>Nueva cuenta</button>
+              </div>
+
+              <p id="cta-vacio" class="vacio" hidden></p>
+              <div id="cta-tabla-contenedor" class="tabla-contenedor" hidden>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Nombre</th>
+                      <th scope="col">Tipo</th>
+                      <th scope="col">Banco</th>
+                      <th scope="col">Referencia</th>
+                      <th scope="col">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cta-tabla"></tbody>
+                </table>
+              </div>
+              <p class="nota">Los datos salen de <code>accounts</code>. La CLABE se muestra enmascarada.</p>
+            </div>
+
+            <form id="cta-form" class="panel" novalidate hidden>
+              <h3>Nueva cuenta</h3>
+              <p id="cta-form-aviso" class="aviso" role="alert" hidden></p>
+              <label for="cta-nombre">Nombre</label>
+              <input id="cta-nombre" type="text" autocomplete="off" required>
+              <label for="cta-tipo">Tipo de cuenta</label>
+              <select id="cta-tipo" required></select>
+              <label for="cta-banco">Banco</label>
+              <input id="cta-banco" type="text" autocomplete="off">
+              <label for="cta-clabe">CLABE</label>
+              <input id="cta-clabe" type="text" inputmode="numeric" maxlength="18" autocomplete="off">
+              <label for="cta-descripcion">Descripción corta</label>
+              <textarea id="cta-descripcion" rows="2" maxlength="255"></textarea>
+              <p class="nota">Banco y CLABE pueden ir vacíos en una cuenta de efectivo.</p>
+              <div class="panel-botones">
+                <button type="submit" class="btn-primario">Guardar</button>
+                <button type="button" class="btn-secundario" data-cerrar="cta-form">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- ======================= CONCEPTOS ======================= -->
+        <section id="sec-conceptos" class="seccion" hidden>
+          <div class="seccion-titulo">
+            <h2 class="titulo-pantalla">Conceptos</h2>
+            <p class="pregunta">¿Por qué se mueve el dinero y en qué cuenta se permite?</p>
+          </div>
+
+          <p id="con-aviso" class="aviso" role="alert" hidden></p>
+          <p id="con-ok" class="ok" role="status" hidden></p>
+
+          <div class="columnas columnas-iguales">
+
+            <!-- Catálogo -->
+            <div class="tarjeta-bloque">
+              <h3>Catálogo</h3>
+              <div class="barra">
+                <div id="con-filtros" class="chips" role="group" aria-label="Filtrar por tipo">
+                  <button type="button" class="chip activo" data-tipo="">Todos</button>
+                  <button type="button" class="chip" data-tipo="INCOME">Ingreso</button>
+                  <button type="button" class="chip" data-tipo="EXPENSE">Egreso</button>
+                </div>
+                <label class="interruptor">
+                  <input id="con-solo-activos" type="checkbox"> Activos
+                </label>
+                <button id="con-nuevo" type="button" class="btn-primario" hidden>Nuevo concepto</button>
+              </div>
+
+              <form id="con-form" class="panel panel-en-linea" novalidate hidden>
+                <h3>Nuevo concepto</h3>
+                <p id="con-form-aviso" class="aviso" role="alert" hidden></p>
+                <label for="con-nombre">Nombre</label>
+                <input id="con-nombre" type="text" autocomplete="off" required>
+                <fieldset class="opciones">
+                  <legend>Tipo</legend>
+                  <label><input type="radio" name="con-tipo" value="INCOME" checked> Ingreso</label>
+                  <label><input type="radio" name="con-tipo" value="EXPENSE"> Egreso</label>
+                </fieldset>
+                <label for="con-descripcion">Descripción corta</label>
+                <textarea id="con-descripcion" rows="2" maxlength="255"></textarea>
+                <div class="panel-botones">
+                  <button type="submit" class="btn-primario">Guardar</button>
+                  <button type="button" class="btn-secundario" data-cerrar="con-form">Cancelar</button>
+                </div>
+              </form>
+
+              <p id="con-vacio" class="vacio" hidden></p>
+              <div id="con-tabla-contenedor" class="tabla-contenedor" hidden>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Concepto</th>
+                      <th scope="col">Tipo</th>
+                      <th scope="col">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="con-tabla"></tbody>
+                </table>
+              </div>
+              <p class="nota">Los datos salen de <code>concepts</code>.</p>
+            </div>
+
+            <!-- Conceptos de una cuenta -->
+            <div class="tarjeta-bloque">
+              <h3 id="ac-titulo">Conceptos de la cuenta</h3>
+              <label for="ac-cuenta">Cuenta</label>
+              <select id="ac-cuenta"></select>
+
+              <p id="ac-vacio" class="vacio" hidden></p>
+              <ul id="ac-lista" class="lista-asignados"></ul>
+
+              <div id="ac-asignar" class="asignar" hidden>
+                <label for="ac-concepto">Concepto a asignar</label>
+                <div class="asignar-fila">
+                  <select id="ac-concepto"></select>
+                  <button id="ac-btn-asignar" type="button" class="btn-primario">Asignar concepto</button>
+                </div>
+              </div>
+              <p class="nota">Solo los conceptos asignados se pueden usar en un movimiento. Quitar
+                desactiva la relación: el concepto sigue en el catálogo y los movimientos viejos no
+                cambian. Los datos salen de <code>accountConcepts</code>.</p>
             </div>
           </div>
         </section>
 
-        <!-- Bloque 5: detalle por cuenta -->
-        <section aria-labelledby="titulo-detalle">
-          <h2 id="titulo-detalle">Detalle por cuenta</h2>
-          <p id="sin-cuentas" class="vacio" hidden>
-            Esta empresa todavía no tiene cuentas registradas, por eso no hay detalle que mostrar.
-          </p>
-          <div id="tabla-contenedor" class="tabla-contenedor">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Cuenta</th>
-                  <th scope="col" class="num">Saldo inicial (MXN)</th>
-                  <th scope="col" class="num">Ingresos (MXN)</th>
-                  <th scope="col" class="num">Egresos (MXN)</th>
-                  <th scope="col" class="num">Profit (MXN)</th>
-                  <th scope="col" class="num">Saldo final (MXN)</th>
-                </tr>
-              </thead>
-              <tbody id="tabla-cuentas"></tbody>
-            </table>
-          </div>
-        </section>
-
-      </div>
-    </main>
+      </main>
+    </div>
   </div>
 
   <script src="app.js"></script>

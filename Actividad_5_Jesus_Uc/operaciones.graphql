@@ -232,3 +232,40 @@ mutation DesactivarMovimiento($id: ID!) {
 # Variables: variables/a7_b14_quitar_transactions_read.json y
 #            variables/a7_b14_restaurar_permisos.json
 # La mutación AplicarConfiguracion (más arriba) recibe estas variables.
+
+# =========================================================
+# UNIDAD III, ACTIVIDAD 2 - Idempotencia en createTransaction
+# =========================================================
+# Datos: python scripts/preparar_demo_u3a2.py   (entra con Ana: variables/u3a2_login_ana.json)
+#
+# 1) Variables variables/u3a2_tx_llave1.json, ejecutar DOS veces: mismo id.
+# 2) Variables variables/u3a2_tx_llave2.json: otro id, aunque el monto sea igual.
+# 3) Variables variables/u3a2_tx_llave1_otro_monto.json: error, la llave ya se usó con otros datos.
+mutation CrearMovimiento($input: CreateTransactionInput!) {
+  createTransaction(input: $input) {
+    id
+    amount
+    transactionType
+    transactionDate
+    capturedAt
+  }
+}
+
+# =========================================================
+# UNIDAD III, ACTIVIDAD 2 - Lecturas del dashboard administrativo
+# =========================================================
+# Lo que el token permite (sin variables).
+query MiAcceso {
+  myAccess { companyUserId companyId companyName userName isAdmin role { code name } permissions }
+}
+
+# La tabla Usuarios del dashboard.  Variables: variables/u3a2_company_users.json
+query UsuariosEmpresa($companyId: ID!) {
+  companyUsers(companyId: $companyId) {
+    id
+    isAdmin
+    isActive
+    role { code name }
+    user { name email }
+  }
+}

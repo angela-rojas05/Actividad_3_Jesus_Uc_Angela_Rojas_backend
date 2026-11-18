@@ -114,3 +114,36 @@ class Transaction(Base):
     account: Mapped[Account] = relationship()
     concept: Mapped[Concept] = relationship()
     captured_by_user: Mapped[User] = relationship()
+
+
+class IdempotencyKey(Base):
+    """Llave de idempotencia de una mutación (Unidad III, Actividad 2).
+
+    La llave y el movimiento se guardan en el mismo COMMIT.  El índice único
+    (empresa, operación, llave) es lo que impide un segundo movimiento con la
+    misma llave, aun si llegan dos peticiones al mismo tiempo.
+    """
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "operation", "idempotency_key",
+            name="uq_idempotency_company_operation_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    operation: Mapped[str] = mapped_column(String(50), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    # SHA-256 del cuerpo normalizado: detecta la misma llave con otros datos.
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Si se borra el movimiento (p. ej. al restaurar la demo) se va su llave.
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    transaction: Mapped[Transaction] = relationship()

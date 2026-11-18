@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
@@ -21,7 +23,14 @@ from app.models import (
     RolePermissionModel,
     User,
 )
-from app.financial_models import Account, AccountConcept, Concept, Transaction, utcnow as financial_utcnow
+from app.financial_models import (
+    Account,
+    AccountConcept,
+    Concept,
+    IdempotencyKey,
+    Transaction,
+    utcnow as financial_utcnow,
+)
 from app.access import leer_actor, validar_acceso
 from app.balances import MONEDA, calcular_balances
 from app.role_config import (
@@ -133,6 +142,14 @@ class UserType:
     updated_at: datetime
 
 
+@strawberry.type(name="MembershipRole")
+class MembershipRoleType:
+    """Rol activo de una membresía (solo lectura en la Actividad 2 del Parcial III)."""
+    id: strawberry.ID
+    code: str
+    name: str
+
+
 @strawberry.type(name="CompanyUser")
 class CompanyUserType:
     id: strawberry.ID
@@ -143,6 +160,20 @@ class CompanyUserType:
     joined_at: datetime
     company: CompanyType
     user: UserType
+    # None si la membresía no tiene un rol activo.
+    role: Optional[MembershipRoleType] = None
+
+
+@strawberry.type(name="MyAccess")
+class MyAccessType:
+    """Lo que el token permite: la empresa, la membresía, su rol y sus permisos."""
+    company_user_id: strawberry.ID
+    company_id: strawberry.ID
+    company_name: str
+    user_name: str
+    is_admin: bool
+    role: Optional[MembershipRoleType]
+    permissions: list[str]
 
 
 @strawberry.type
@@ -433,6 +464,66 @@ class CreateTransactionInput:
     transaction_date: Optional[datetime] = None
     short_description: Optional[str] = None
     long_description: Optional[str] = None
+    # Unidad III, Actividad 2: el cliente la genera UNA vez por acción (p. ej.
+    # un UUID al pulsar Guardar) y la repite en cada reintento.
+    idempotency_key: Optional[str] = None
+
+
+# =========================================================
+# IDEMPOTENCIA (Unidad III, Actividad 2)
+# =========================================================
+
+OPERACION_CREATE_TRANSACTION = "createTransaction"
+LLAVE_MIN = 8
+LLAVE_MAX = 100
+
+
+def normalize_idempotency_key(value: Optional[str]) -> Optional[str]:
+    """Sin llave se conserva el comportamiento anterior (cada envío es nuevo)."""
+    if value is None:
+        return None
+    llave = value.strip()
+    if not (LLAVE_MIN <= len(llave) <= LLAVE_MAX):
+        raise GraphQLError(
+            f"La idempotencyKey debe tener entre {LLAVE_MIN} y {LLAVE_MAX} caracteres."
+        )
+    return llave
+
+
+def request_hash_transaction(**campos) -> str:
+    """SHA-256 del cuerpo normalizado del movimiento (sin la llave)."""
+    cuerpo = {
+        clave: (
+            str(valor) if isinstance(valor, Decimal)
+            else valor.isoformat() if isinstance(valor, datetime)
+            else valor
+        )
+        for clave, valor in campos.items()
+    }
+    texto = json.dumps(cuerpo, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+def movimiento_por_llave(db, company_id: int, llave: str, huella: str) -> Optional[Transaction]:
+    """Devuelve el movimiento ya guardado con esa llave, o None si es nueva.
+
+    Si la llave existe pero el cuerpo es otro, no se reutiliza el movimiento.
+    """
+    registro = db.scalar(
+        select(IdempotencyKey).where(
+            IdempotencyKey.company_id == company_id,
+            IdempotencyKey.operation == OPERACION_CREATE_TRANSACTION,
+            IdempotencyKey.idempotency_key == llave,
+        )
+    )
+    if registro is None:
+        return None
+    if registro.request_hash != huella:
+        raise GraphQLError(
+            "Esa idempotencyKey ya se usó con otros datos. "
+            "Genera una llave nueva para un movimiento distinto."
+        )
+    return registro.transaction
 
 
 # =========================================================
@@ -499,7 +590,38 @@ def company_user_to_type(
         user=user_to_type(
             company_user.user
         ),
+
+        role=rol_activo(company_user),
     )
+
+
+def rol_activo(company_user: CompanyUser) -> Optional[MembershipRoleType]:
+    """El rol que ya guarda company_user_roles; el cliente no lo inventa."""
+    for asignacion in company_user.roles:
+        if asignacion.is_active:
+            return MembershipRoleType(
+                id=strawberry.ID(str(asignacion.role.id)),
+                code=asignacion.role.code,
+                name=asignacion.role.name,
+            )
+    return None
+
+
+def permisos_activos(db, company_user: CompanyUser) -> list[str]:
+    """Códigos de permiso activos del rol activo de la membresía."""
+    stmt = (
+        select(PermissionModel.code)
+        .join(RolePermissionModel, RolePermissionModel.permission_id == PermissionModel.id)
+        .join(CompanyUserRoleModel, CompanyUserRoleModel.role_id == RolePermissionModel.role_id)
+        .where(
+            CompanyUserRoleModel.company_user_id == company_user.id,
+            CompanyUserRoleModel.is_active.is_(True),
+            RolePermissionModel.is_active.is_(True),
+            PermissionModel.is_active.is_(True),
+        )
+        .order_by(PermissionModel.code)
+    )
+    return list(db.scalars(stmt).all())
 
 
 
@@ -682,6 +804,25 @@ class Query:
 
             return company_to_type(
                 company
+            )
+
+
+    @strawberry.field
+    def my_access(
+        self,
+        info: strawberry.Info,
+    ) -> MyAccessType:
+        """Solo requiere un token válido.  Todo sale de la BD, no del cliente."""
+        with SessionLocal() as db:
+            actor = db.get(CompanyUser, leer_actor(db, info))
+            return MyAccessType(
+                company_user_id=strawberry.ID(str(actor.id)),
+                company_id=strawberry.ID(str(actor.company_id)),
+                company_name=actor.company.name,
+                user_name=actor.user.name,
+                is_admin=actor.is_admin,
+                role=rol_activo(actor),
+                permissions=permisos_activos(db, actor),
             )
 
 
@@ -1772,13 +1913,17 @@ class Mutation:
         info: strawberry.Info,
         input: CreateTransactionInput,
     ) -> TransactionGraphQL:
+        llave = normalize_idempotency_key(input.idempotency_key)
+        amount = validate_amount(Decimal(input.amount))
+        transaction_date = normalize_transaction_date(input.transaction_date)
+        short_description = input.short_description.strip() if input.short_description and input.short_description.strip() else None
+        long_description = input.long_description.strip() if input.long_description and input.long_description.strip() else None
+
         with SessionLocal() as db:
             actor_id = leer_actor(db, info)
             account = db.get(Account, int(input.account_id))
             if account is None:
                 raise GraphQLError("La cuenta no existe.")
-            if not account.is_active:
-                raise GraphQLError("La cuenta está inactiva.")
 
             actor = validar_acceso(
                 db,
@@ -1786,6 +1931,27 @@ class Mutation:
                 "transactions.write",
                 target_company_id=account.company_id,
             )
+
+            # Idempotencia: el reintento se resuelve ANTES de las reglas de
+            # negocio, para devolver el mismo movimiento aunque algo haya
+            # cambiado después del primer COMMIT.
+            huella = None
+            if llave is not None:
+                huella = request_hash_transaction(
+                    account_id=account.id,
+                    concept_id=int(input.concept_id),
+                    transaction_type=input.transaction_type.value,
+                    amount=amount,
+                    transaction_date=transaction_date,
+                    short_description=short_description,
+                    long_description=long_description,
+                )
+                previo = movimiento_por_llave(db, account.company_id, llave, huella)
+                if previo is not None:
+                    return transaction_to_type(previo)
+
+            if not account.is_active:
+                raise GraphQLError("La cuenta está inactiva.")
 
             concept = db.get(Concept, int(input.concept_id))
             if concept is None:
@@ -1809,22 +1975,44 @@ class Mutation:
             if input.transaction_type.value != concept.concept_type:
                 raise GraphQLError("El tipo de movimiento no es compatible con el tipo de concepto.")
 
-            amount = validate_amount(Decimal(input.amount))
-
             now = financial_utcnow()
             transaction = Transaction(
                 account_id=account.id,
                 concept_id=concept.id,
                 transaction_type=input.transaction_type.value,
                 amount=amount,
-                transaction_date=normalize_transaction_date(input.transaction_date) or now,
+                transaction_date=transaction_date or now,
                 captured_at=now,
                 captured_by=actor.user_id,
-                short_description=input.short_description.strip() if input.short_description and input.short_description.strip() else None,
-                long_description=input.long_description.strip() if input.long_description and input.long_description.strip() else None,
+                short_description=short_description,
+                long_description=long_description,
             )
             db.add(transaction)
-            db.commit()
+
+            if llave is not None:
+                # Movimiento y llave en la misma sesión: un solo COMMIT.
+                db.flush()
+                db.add(IdempotencyKey(
+                    company_id=account.company_id,
+                    operation=OPERACION_CREATE_TRANSACTION,
+                    idempotency_key=llave,
+                    request_hash=huella,
+                    transaction_id=transaction.id,
+                ))
+
+            try:
+                db.commit()
+            except IntegrityError as exc:
+                db.rollback()
+                if llave is None:
+                    raise GraphQLError("No se pudo registrar el movimiento.") from exc
+                # Otra petición con la misma llave confirmó primero: el índice
+                # único rechazó esta, y su movimiento se deshizo con el rollback.
+                previo = movimiento_por_llave(db, account.company_id, llave, huella)
+                if previo is None:
+                    raise GraphQLError("No se pudo registrar el movimiento.") from exc
+                return transaction_to_type(previo)
+
             db.refresh(transaction)
             return transaction_to_type(transaction)
 

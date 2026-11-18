@@ -1,0 +1,11 @@
+{
+  "input": {
+    "accountId": "18",
+    "conceptId": "9",
+    "transactionType": "EXPENSE",
+    "amount": "100.00",
+    "transactionDate": "2026-11-18T12:00:00Z",
+    "shortDescription": "Pago de renta (prueba de idempotencia)",
+    "idempotencyKey": "4c7e2a90-8b1d-4f6e-a2c5-u3a2-llave-2"
+  }
+}

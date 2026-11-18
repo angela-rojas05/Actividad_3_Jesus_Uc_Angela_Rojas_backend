@@ -1,6 +1,40 @@
-# Sistema General de Ingresos — Unidad III, Actividad 1
+# Sistema General de Ingresos — Unidad III, Actividad 2
 
 **Integrantes:** Jesús Omar Uc Domínguez · Ángela Yaritzi Rojas Brito
+
+## Unidad III, Actividad 2: idempotencia y dashboard administrativo
+Detalle del cliente y de cómo se entra a la administración: `../dashboard/README.md`.
+
+```
+docker compose up -d                          # MySQL (puerto 3307)
+python scripts/preparar_demo_u3a2.py          # datos de la demo + variables u3a2_*.json
+uvicorn app.main:app                          # API (puerto 8000)
+```
+
+**Parte 1, idempotencia en `createTransaction`:**
+- `CreateTransactionInput` acepta `idempotencyKey` (opcional, 8 a 100 caracteres). El cliente la genera
+  una vez por acción y la repite en cada reintento. Sin llave, cada envío es un movimiento nuevo, como antes.
+- Tabla nueva `idempotency_keys` (`app/financial_models.py`, modelo `IdempotencyKey`): índice único
+  `(company_id, operation, idempotency_key)`, hash SHA-256 del cuerpo normalizado y el id del movimiento.
+  `create_all` la crea al arrancar; no se modificó ninguna tabla existente.
+- El resolver busca la llave; si ya existe con el mismo cuerpo, devuelve el mismo movimiento sin otro
+  `INSERT`. Si es nueva, inserta el movimiento y la llave en la misma sesión y hace **un solo `COMMIT`**.
+  Si dos peticiones llegan a la vez, el índice único rechaza la segunda, se hace `rollback` (su
+  movimiento no queda) y se devuelve el que ya se guardó.
+- La misma llave con otro monto, cuenta o concepto se rechaza: `Esa idempotencyKey ya se usó con otros datos.`
+- La llave es por empresa: la misma cadena en otra empresa es otra llave.
+
+**Parte 2, API para el dashboard administrativo** (`app/schema.py`):
+- `CompanyUser.role { id code name }`: el rol activo que ya guarda `company_user_roles` (null si no tiene).
+- Consulta `myAccess`: empresa, membresía, rol y permisos del token, leídos de la BD. El dashboard la usa
+  para saber qué botones de alta dibujar; el servidor sigue validando cada permiso en cada mutación.
+- El resto ya existía: `companyUsers`, `accounts`, `concepts`, `accountConcepts`, `createCompanyUser`,
+  `deactivateCompanyUser`, `createAccount`, `createConcept`, `assignConceptToAccount` y
+  `removeConceptFromAccount`.
+
+Pruebas: `tests/test_unidad3_actividad2.py` (14 casos, incluido el de cinco reintentos simultáneos con la
+misma llave). Comprobaciones SQL: `comprobaciones_u3a2.sql`. Operaciones de GraphiQL: al final de
+`operaciones.graphql`.
 
 ## Unidad III, Actividad 1: dashboard financiero
 Cliente web (HTML + CSS + JavaScript) en la carpeta `dashboard/` de la raíz del repositorio. Inicia

@@ -1,9 +1,63 @@
-# Dashboard financiero — Unidad III, Actividad 1
+# Dashboard del Sistema General de Ingresos — Unidad III
 
-Cliente web del Sistema General de Ingresos: inicia sesión, pide un período y muestra los
-indicadores generales de la empresa leyendo `generalBalance` del API GraphQL.
+Cliente web del Sistema General de Ingresos. Una sola aplicación, con el mismo login y el mismo API
+GraphQL, y dos dashboards en el menú de la izquierda:
+
+- **Financiero** (actividad 1): período, indicadores generales y saldo por cuenta (`generalBalance`).
+- **Administrativo** (actividad 2): Usuarios, Cuentas y Conceptos.
 
 **Integrantes:** Jesús Omar Uc Domínguez · Ángela Yaritzi Rojas Brito
+
+## Actividad 2: cómo se entra a la administración
+1. Levantar todo (ver "Cómo levantar todo" más abajo) y correr `python scripts/preparar_demo_u3a2.py`.
+2. Abrir http://127.0.0.1:8000/dashboard/ e iniciar sesión con **`ana@actividad7.com`** (rol
+   **ADMINISTRADOR**: es el rol que usamos para probar la escritura; tiene `company.users.write`,
+   `accounts.write` y `concepts.write`).
+3. En el menú, bajo **Administración**, elegir **Usuarios**, **Cuentas** o **Conceptos**. Cada pantalla
+   tiene su dirección: `#/admin/usuarios`, `#/admin/cuentas`, `#/admin/conceptos`. **Resumen
+   financiero** (`#/financiero`) vuelve al dashboard de la actividad 1.
+4. Para ver la pantalla de solo lectura, entrar con **`pedro@actividad7.com`** (rol **CONSULTA**): ve
+   las tablas, pero no los botones Nuevo usuario, Nueva cuenta, Nuevo concepto, Desactivar, Asignar ni Quitar.
+
+El encabezado es el mismo en las dos vistas: nombre de la empresa de la sesión, usuario, rol y
+**Cerrar sesión** (borra el token y vuelve al login). Si el token falta o el API lo rechaza en
+cualquier pantalla, se vuelve al login; no se queda una tabla a medias.
+
+### Qué muestra cada pantalla y de dónde sale
+| Pantalla | Pregunta | Lectura | Altas y bajas | Permiso para escribir |
+|---|---|---|---|---|
+| Usuarios | ¿Quién pertenece a la empresa? | `companyUsers` | `createCompanyUser`, `deactivateCompanyUser` | `company.users.write` |
+| Cuentas | ¿Dónde está el dinero? | `accounts` | `createAccount` | `accounts.write` |
+| Conceptos | ¿Por qué se mueve el dinero y en qué cuenta se permite? | `concepts`, `accounts`, `accountConcepts` | `createConcept`, `assignConceptToAccount`, `removeConceptFromAccount` | `concepts.write` |
+
+| En pantalla | Campo GraphQL |
+|---|---|
+| Usuarios: Nombre, Correo | `companyUsers.user.name`, `user.email` |
+| Usuarios: Rol | `companyUsers.role.name` (rol activo guardado en `company_user_roles`; "Sin rol asignado" si es null) |
+| Usuarios: Administrador, Estado | `isAdmin`, `isActive` |
+| Usuarios: conteos de arriba | Calculados con la misma lista (activos, administrador principal, inactivos); no son importes |
+| Cuentas: Nombre, Tipo, Banco, Estado | `name`, `accountType` (con su etiqueta: CASH → Efectivo, etc.), `bankName`, `isActive` |
+| Cuentas: Referencia | `clabe` enmascarada (`****` + últimos 4) o `cardLastDigits` |
+| Conceptos: Concepto, Tipo, Estado | `name`, `conceptType` (INCOME → Ingreso, EXPENSE → Egreso), `isActive` |
+| Conceptos de la cuenta | `accountConcepts(accountId)` con `isActive = true` |
+| Qué botones se dibujan | `myAccess.permissions` |
+
+Reglas que se cumplen:
+- Después de cada alta, baja o asignación la tabla **se vuelve a consultar**; no se agrega la fila a mano.
+- Los errores del API se leen en la pantalla: correo duplicado, concepto ya asignado, nombre repetido, etc.
+- Las bajas son lógicas: Desactivar y Quitar ponen `isActive` en false; la fila sigue en MySQL.
+- La contraseña solo existe en el formulario de alta; no aparece en ninguna tabla ni en ninguna consulta.
+- Estado vacío: si no hay usuarios, cuentas o conceptos (o ninguno coincide con el filtro) se dice con texto.
+- Activo e inactivo se distinguen con una etiqueta de color y hay filtro para ver solo activos.
+- Las búsquedas y filtros trabajan sobre la lista ya cargada; no hay endpoint nuevo para eso.
+- El alta de usuario no pide `isAdmin`: se crea con rol Consulta. El administrador principal ya existe
+  (`createCompanyAdmin`, Parcial I) y no se puede desactivar.
+
+El diseño sigue las figuras 9 a 12 de la guía (menú a la izquierda, título, búsqueda o filtros,
+acción principal y tabla; el formulario aparece a la derecha al pulsar la acción), por eso no hay un
+boceto nuevo.
+
+## Actividad 1: dashboard financiero
 
 ## Arquitectura elegida
 Página web sencilla: **HTML + CSS + JavaScript sin framework ni dependencias** (`index.html`,
@@ -11,10 +65,11 @@ Página web sencilla: **HTML + CSS + JavaScript sin framework ni dependencias** 
 
 - El backend es la única fuente de cálculo. El cliente no suma ni resta: solo da formato a los
   importes, que llegan como texto (`"1800.00"`) y se tratan como texto, sin `float`.
-- Todo va por GraphQL (`login`, `generalBalance`, `company`); no hay API REST paralelo.
+- Todo va por GraphQL; no hay API REST paralelo.
 - El token se guarda solo en `sessionStorage` del navegador y se borra al cerrar sesión. No hay
   tokens, contraseñas ni el secreto JWT en el código.
-- La empresa sale del token: el cliente no envía `companyId` ni `actorCompanyUserId`.
+- La empresa sale del token: el cliente nunca envía `actorCompanyUserId`, y el `companyId` que
+  usan las consultas de administración es el que devuelve `myAccess` (el API lo lee del token).
 
 ## Cómo levantar todo
 Desde `Actividad_5_Jesus_Uc/` (backend). La primera vez: `pip install -r requirements.txt` y crear
@@ -65,7 +120,7 @@ del día 1 del mes en curso a hoy; cambien las fechas a ese período.
 |---|---|
 | Período del encabezado | `fromDate`, `toDate` (de la respuesta, no de los campos de fecha) |
 | Moneda | `currency` |
-| Nombre de la empresa | `company(id: companyId).name` |
+| Nombre de la empresa | `myAccess.companyName` |
 | Saldo inicial | `openingBalance` |
 | Ingresos | `totalIncome` |
 | Egresos | `totalExpense` |
@@ -86,5 +141,6 @@ del día 1 del mes en curso a hoy; cambien las fechas a ese período.
   negativo solo cambia a ámbar, para no confundirlo con un saldo en rojo.
 
 ## Archivos
-`index.html` · `styles.css` · `app.js` · `boceto.svg` (wireframe) · `evidencias.md` ·
-`evidencias/` (capturas) · `guion_demo.md`
+`index.html` · `styles.css` · `app.js` · `boceto.svg` (wireframe de la actividad 1) ·
+`evidencias.md` (actividad 1) · `evidencias_actividad2.md` (actividad 2) · `evidencias/` (capturas) ·
+`guion_demo.md`
