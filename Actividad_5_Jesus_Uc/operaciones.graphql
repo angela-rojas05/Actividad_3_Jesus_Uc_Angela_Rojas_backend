@@ -269,3 +269,66 @@ query UsuariosEmpresa($companyId: ID!) {
     user { name email }
   }
 }
+
+# =========================================================
+# UNIDAD III, ACTIVIDAD 3 - Matriz de roles y permisos
+# Datos: python scripts/preparar_demo_u3a3.py
+# Token en Headers: { "Authorization": "Bearer TOKEN" } (login de Ana:
+# variables/u3a3_login_ana.json).  Ninguna operación recibe actorCompanyUserId.
+# =========================================================
+
+# Columnas y filas de la cuadrícula (sin variables).
+query Matriz {
+  roles(activeOnly: true) {
+    id
+    code
+    name
+  }
+  permissions(activeOnly: true) {
+    id
+    code
+    name
+  }
+}
+
+# Una columna.  Variables: variables/u3a3_lista_capturista.json ({ "roleId": "<CAPTURISTA>" })
+query ListaDelRol($roleId: ID!) {
+  rolePermissions(roleId: $roleId) {
+    isActive
+    permission {
+      id
+      code
+    }
+  }
+}
+
+# Vista previa (solo lee).  Variables: variables/u3a3_capturista_con_accounts_write.json
+query VistaPrevia($input: SetRolePermissionsInput!) {
+  previewRolePermissions(input: $input) {
+    toActivate { code }
+    toDeactivate { code }
+    unchanged { code }
+    finalCount
+  }
+}
+
+# Guardar la lista COMPLETA de la columna.  Mismas variables; la segunda vez: changed = false.
+mutation GuardarColumna($input: SetRolePermissionsInput!) {
+  setRolePermissions(input: $input) {
+    activated { code }
+    deactivated { code }
+    finalCount
+    changed
+  }
+}
+
+# Cambiar el puesto de una membresía.  { "input": { "companyUserId": "ID", "roleId": "ID" } }
+mutation AsignarPuesto($input: AssignRoleInput!) {
+  assignRole(input: $input) {
+    isActive
+    role {
+      code
+      name
+    }
+  }
+}

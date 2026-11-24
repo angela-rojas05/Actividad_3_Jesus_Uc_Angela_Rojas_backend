@@ -54,13 +54,15 @@
     <div class="marco">
 
       <!-- Menú: distingue el dashboard financiero del administrativo -->
-      <nav class="menu" aria-label="Secciones">
-        <p class="menu-grupo">Financiero</p>
+      <!-- Cada ítem se dibuja solo si myAccess trae su permiso de lectura -->
+      <nav id="menu" class="menu" aria-label="Secciones">
+        <p class="menu-grupo" data-grupo="financiero">Financiero</p>
         <a href="#/financiero" data-seccion="financiero">Resumen financiero</a>
-        <p class="menu-grupo">Administración</p>
+        <p class="menu-grupo" data-grupo="admin">Administración</p>
         <a href="#/admin/usuarios" data-seccion="usuarios">Usuarios</a>
         <a href="#/admin/cuentas" data-seccion="cuentas">Cuentas</a>
         <a href="#/admin/conceptos" data-seccion="conceptos">Conceptos</a>
+        <a href="#/admin/roles" data-seccion="roles">Roles y permisos</a>
       </nav>
 
       <main class="contenido">
@@ -80,9 +82,45 @@
             </div>
             <button id="btn-actualizar" type="submit" class="btn-primario">Actualizar</button>
             <span id="estado-carga" class="estado-carga" role="status" hidden>Consultando…</span>
+            <button id="mov-nuevo" type="button" class="btn-secundario btn-derecha" hidden>
+              Registrar movimiento</button>
           </form>
 
           <p id="dash-aviso" class="aviso" role="alert" hidden></p>
+          <p id="mov-ok" class="ok" role="status" hidden></p>
+
+          <!-- Alta de un ingreso o un egreso: solo con transactions.write -->
+          <form id="mov-form" class="panel panel-en-linea panel-movimiento" novalidate hidden>
+            <h3>Registrar movimiento</h3>
+            <p id="mov-form-aviso" class="aviso" role="alert" hidden></p>
+            <div class="rejilla-campos">
+              <div>
+                <label for="mov-cuenta">Cuenta</label>
+                <select id="mov-cuenta" required></select>
+              </div>
+              <div>
+                <label for="mov-concepto">Concepto</label>
+                <select id="mov-concepto" required></select>
+              </div>
+              <div>
+                <label for="mov-importe">Importe (MXN)</label>
+                <input id="mov-importe" type="text" inputmode="decimal" autocomplete="off"
+                       placeholder="0.00" required>
+              </div>
+              <div>
+                <label for="mov-fecha">Fecha</label>
+                <input id="mov-fecha" type="date" required>
+              </div>
+            </div>
+            <label for="mov-descripcion">Descripción corta</label>
+            <input id="mov-descripcion" type="text" maxlength="255" autocomplete="off">
+            <p class="nota">El tipo (ingreso o egreso) lo da el concepto. Solo aparecen los conceptos
+              asignados a la cuenta.</p>
+            <div class="panel-botones">
+              <button type="submit" class="btn-primario">Guardar</button>
+              <button type="button" class="btn-secundario" data-cerrar="mov-form">Cancelar</button>
+            </div>
+          </form>
 
           <div id="resultados" hidden>
 
@@ -220,6 +258,10 @@
               </div>
               <p class="nota">Los datos salen de <code>companyUsers</code>. Desactivar no borra a la
                 persona: deja de operar en la empresa y su historial se conserva.</p>
+              <p id="usr-nota-rol" class="nota" hidden>Rol: el selector guarda con
+                <code>assignRole</code> y deja un solo rol activo en <code>company_user_roles</code>.
+                No cambia <code>isAdmin</code> ni las celdas de la matriz. El administrador principal
+                conserva su rol.</p>
             </div>
 
             <form id="usr-form" class="panel" novalidate hidden>
@@ -383,6 +425,59 @@
                 cambian. Los datos salen de <code>accountConcepts</code>.</p>
             </div>
           </div>
+        </section>
+
+        <!-- =================== ROLES Y PERMISOS =================== -->
+        <section id="sec-roles" class="seccion" hidden>
+          <div class="seccion-titulo">
+            <h2 class="titulo-pantalla">Roles y permisos</h2>
+            <p class="pregunta">¿Qué puede hacer cada puesto? Catálogo compartido: un cambio en el
+              puesto vale para todas las empresas.</p>
+          </div>
+
+          <p id="rol-modo" class="modo"></p>
+          <p id="rol-aviso" class="aviso" role="alert" hidden></p>
+          <p id="rol-ok" class="ok" role="status" hidden></p>
+          <p id="rol-vacio" class="vacio" hidden></p>
+
+          <!-- Vista previa de la columna que se está editando -->
+          <aside id="rol-preview" class="panel panel-vista-previa" aria-live="polite" hidden>
+            <h3 id="pv-titulo">Vista previa</h3>
+            <p class="nota"><code>previewRolePermissions</code> solo lee. Guardar manda la lista
+              completa con <code>setRolePermissions</code>.</p>
+            <p id="pv-cargando" class="texto-suave" hidden>Calculando…</p>
+            <dl id="pv-resumen" class="resumen">
+              <div id="pv-fila-activar" class="resumen-fila">
+                <dt>Se van a activar</dt><dd id="pv-activar">—</dd>
+              </div>
+              <div id="pv-fila-desactivar" class="resumen-fila">
+                <dt>Se van a desactivar</dt><dd id="pv-desactivar">—</dd>
+              </div>
+              <div class="resumen-fila">
+                <dt>Sin cambio</dt><dd id="pv-sin-cambio">—</dd>
+              </div>
+              <div class="resumen-fila">
+                <dt>Total final</dt><dd id="pv-total">—</dd>
+              </div>
+            </dl>
+            <p id="pv-aviso" class="aviso" role="alert" hidden></p>
+            <div class="panel-botones">
+              <button id="pv-guardar" type="button" class="btn-primario">Guardar columna</button>
+              <button id="pv-descartar" type="button" class="btn-secundario">Descartar</button>
+            </div>
+          </aside>
+
+          <div id="rol-tabla-contenedor" class="tabla-contenedor" hidden>
+            <table class="matriz">
+              <thead id="rol-cabeza"></thead>
+              <tbody id="rol-cuerpo"></tbody>
+            </table>
+          </div>
+          <p class="nota">Cada celda es la pareja (rol, permiso) en <code>role_permissions</code>:
+            «sí» es una relación activa; «no» es que no hay concesión (no existe una marca de
+            prohibido). Columnas: <code>roles</code>; filas: <code>permissions</code>; celdas:
+            <code>rolePermissions</code> de cada columna. La columna Administrador se ve y no se
+            edita.</p>
         </section>
 
       </main>

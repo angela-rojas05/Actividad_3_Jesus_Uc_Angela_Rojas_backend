@@ -39,12 +39,12 @@ ROLES_DATA = [
 PERMISSIONS_DATA = [
     {
         "code": "company.users.read",
-        "name": "Ver usuarios de empresa",
+        "name": "Ver usuarios",
         "description": "Permite consultar los usuarios asociados a la empresa.",
     },
     {
         "code": "company.users.write",
-        "name": "Gestionar usuarios de empresa",
+        "name": "Administrar usuarios",
         "description": "Permite asignar y modificar usuarios en la empresa.",
     },
     {
@@ -54,7 +54,7 @@ PERMISSIONS_DATA = [
     },
     {
         "code": "accounts.write",
-        "name": "Gestionar cuentas",
+        "name": "Crear cuentas",
         "description": "Permite crear, actualizar y desactivar cuentas financieras.",
     },
     {
@@ -64,27 +64,27 @@ PERMISSIONS_DATA = [
     },
     {
         "code": "concepts.write",
-        "name": "Gestionar conceptos",
+        "name": "Administrar conceptos",
         "description": "Permite crear, actualizar y desactivar conceptos financieros.",
     },
     {
         "code": "transactions.read",
-        "name": "Ver transacciones",
+        "name": "Ver movimientos",
         "description": "Permite consultar los movimientos financieros.",
     },
     {
         "code": "transactions.write",
-        "name": "Gestionar transacciones",
+        "name": "Registrar movimientos",
         "description": "Permite registrar y modificar movimientos financieros.",
     },
     {
         "code": "roles.read",
-        "name": "Ver roles",
+        "name": "Ver la matriz",
         "description": "Permite consultar los roles y permisos del sistema.",
     },
     {
         "code": "roles.write",
-        "name": "Gestionar roles",
+        "name": "Cambiar la matriz y asignar puestos",
         "description": "Permite asignar y modificar roles y permisos.",
     },
 ]

@@ -566,6 +566,134 @@ td > .etiqueta-inactiva { margin-left: 0; }
 .asignar-fila select { flex: 1; }
 .asignar-fila .btn-primario { white-space: nowrap; }
 
+/* =========================================================
+   Unidad III, Actividad 3: roles y permisos
+   ========================================================= */
+
+.btn-derecha { margin-left: auto; }
+
+.panel-movimiento { max-width: 760px; }
+.rejilla-campos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 0.9rem;
+}
+
+/* Usuarios: selector de la columna Rol */
+.control-rol { display: flex; align-items: center; gap: 0.4rem; }
+.control-rol select { width: auto; min-width: 140px; padding: 0.3rem 0.5rem; border-radius: 6px; }
+.control-rol .btn-texto { padding: 0.2rem 0.3rem; }
+.control-rol .btn-texto:disabled { color: var(--texto-suave); cursor: default; opacity: 0.6; }
+.fila-cambiada td { background: #eaf6f5; }
+
+/* Aviso de modo (edición o solo lectura) */
+.modo {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--borde);
+  border-left: 5px solid var(--acento);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--texto-suave);
+  font-size: 0.92rem;
+}
+.modo-lectura { border-left-color: var(--ambar); background: #fff8eb; color: #5c3a00; }
+
+/* Matriz */
+.matriz th, .matriz td { padding: 0.5rem 0.75rem; }
+.matriz thead th { vertical-align: top; }
+.matriz .col-rol { min-width: 150px; text-align: center; }
+.matriz .col-rol small,
+.matriz .permiso small {
+  display: block;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+.matriz .col-rol small { color: #c9d6ea; }
+.matriz .col-protegida { background: #3a4d6b; }
+.matriz .col-editando { box-shadow: inset 0 -4px 0 #6cc5c0; }
+.rol-nombre { font-size: 0.95rem; }
+
+.btn-columna {
+  margin-top: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #6f83a3;
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.btn-columna:hover { background: rgba(255, 255, 255, 0.12); }
+.btn-columna:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.matriz .fila-grupo th {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--borde);
+  background: #f6f8fb;
+  color: var(--texto-suave);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.matriz .permiso { font-weight: 600; }
+.matriz .permiso small { color: var(--texto-suave); }
+.celda-matriz { text-align: center; }
+.celda-protegida { background: #f3f5f8; }
+
+.marca { font-weight: 700; }
+.marca-si { color: var(--verde); }
+.marca-no { color: var(--texto-suave); }
+
+.casilla {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 120px;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.casilla-si { border-color: #a9d8b9; background: var(--verde-fondo); color: var(--verde); }
+.casilla-no { color: var(--texto-suave); }
+.casilla-activa { border: 2px solid var(--acento); }
+.casilla-desactiva { border: 2px solid var(--rojo); color: var(--rojo); background: var(--rojo-fondo); }
+.casilla:has(input:disabled) { cursor: not-allowed; opacity: 0.75; }
+
+/* Vista previa: encima de la matriz, a todo el ancho */
+.panel-vista-previa { margin-bottom: 1rem; border-color: var(--acento); }
+.panel-vista-previa h3 { margin-bottom: 0.2rem; }
+.panel-vista-previa .nota { margin: 0 0 0.6rem; }
+.resumen {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0 0 0.9rem;
+}
+.resumen-fila {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: #f6f8fb;
+}
+.resumen-fila dt { font-size: 0.85rem; color: var(--texto-suave); }
+.resumen-fila dd {
+  margin: 0.15rem 0 0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+.resumen-activar { background: var(--verde-fondo); }
+.resumen-activar dd { color: var(--verde); }
+.resumen-desactivar { background: var(--rojo-fondo); }
+.resumen-desactivar dd { color: var(--rojo); }
+
 @media (max-width: 1000px) {
   .columnas,
   .columnas-iguales,
@@ -592,4 +720,7 @@ td > .etiqueta-inactiva { margin-left: 0; }
   .conteos { grid-template-columns: minmax(0, 1fr); }
   .barra .btn-primario { margin-left: 0; width: 100%; }
   .asignar-fila { flex-direction: column; }
+  .rejilla-campos { grid-template-columns: minmax(0, 1fr); }
+  .resumen { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .btn-derecha { margin-left: 0; width: 100%; }
 }

@@ -5,8 +5,52 @@ GraphQL, y dos dashboards en el menú de la izquierda:
 
 - **Financiero** (actividad 1): período, indicadores generales y saldo por cuenta (`generalBalance`).
 - **Administrativo** (actividad 2): Usuarios, Cuentas y Conceptos.
+- **Roles y permisos** (actividad 3): la matriz rol × permiso, dentro del dashboard administrativo.
 
 **Integrantes:** Jesús Omar Uc Domínguez · Ángela Yaritzi Rojas Brito
+
+## Actividad 3: Roles y permisos
+1. Desde `Actividad_5_Jesus_Uc/`: `docker compose up -d`, `python scripts/preparar_demo_u3a3.py` y
+   `uvicorn app.main:app`. El script deja la matriz como la sección 2.2 de la guía y es repetible.
+2. Abrir http://127.0.0.1:8000/dashboard/ y entrar. En el menú, bajo **Administración**, elegir
+   **Roles y permisos** (`#/admin/roles`). El ítem solo se dibuja si `myAccess` trae `roles.read`.
+
+| Para qué | Usuario (contraseña `Secreto123!`) | Rol |
+|---|---|---|
+| **Editar la matriz** y asignar puestos en Usuarios | `ana@actividad7.com` | ADMINISTRADOR (`roles.write`) |
+| Ver la matriz deshabilitada (solo lectura) | `luis@actividad7.com` | CONTADOR (`roles.read`, sin `roles.write`) |
+| **Comprobar el efecto** de la columna Capturista (Nueva cuenta en Cuentas) | `maria@actividad7.com` y `jose@actividad7.com` | CAPTURISTA |
+| Comprobar el cambio de puesto (Consulta → Capturista: Registrar movimiento) | `pedro@actividad7.com` | CONSULTA al inicio |
+
+Cómo funciona la pantalla:
+- **De dónde sale:** columnas = `roles(activeOnly: true)`, filas = `permissions(activeOnly: true)`,
+  celdas = `rolePermissions(roleId)` por columna. «Sí» es una relación activa; «no» es que no hay
+  concesión (no hay marca de prohibido). Un permiso desactivado en el catálogo no se muestra.
+- **Orden:** columnas Administrador, Contador, Capturista, Consulta (nombre y código de MySQL);
+  filas en cinco grupos (Usuarios, Cuentas, Conceptos, Movimientos, Roles), lectura antes que
+  escritura. El nombre de la fila es el `name` del permiso y el código va debajo.
+- **Editar:** solo con `roles.write`. Al marcar una casilla se abre la **vista previa**
+  (`previewRolePermissions`, solo lee) con lo que se activa, lo que se desactiva, cuántos quedan sin
+  cambio y el total final. **Guardar columna** manda la lista completa a `setRolePermissions` y
+  luego vuelve a leer la columna. **Revisar y guardar** abre la vista previa de una columna sin
+  cambios: guardarla responde `changed = false` y la pantalla lo dice.
+- **Administrador** se ve y no se edita; nunca se envía a `setRolePermissions`.
+- Se edita una columna a la vez; las otras quedan bloqueadas hasta guardar o descartar.
+- **Usuarios, columna Rol:** con `roles.write` aparece un selector con los roles activos; Guardar
+  llama `assignRole`, la celda muestra lo que devolvió la mutación y la tabla se vuelve a leer.
+  Un solo rol activo por membresía; `isAdmin` no cambia. El administrador principal no lleva selector.
+  Si el API rechaza, el error se lee y el selector vuelve al puesto anterior.
+- **Menú por permisos:** cada ítem se dibuja solo con su permiso de lectura (Capturista no ve
+  Usuarios ni Roles y permisos). Si alguien escribe la dirección a mano, el API la rechaza y la
+  pantalla muestra el error.
+- **El token no trae permisos:** al cambiar de pantalla (o pulsar otra vez el ítem del menú) el
+  dashboard vuelve a pedir `myAccess`, así que un cambio de columna o de puesto se nota sin cerrar sesión.
+- **Registrar movimiento** (Resumen financiero): botón visible solo con `transactions.write`, para
+  ver el efecto de esa celda. Usa `createTransaction` con `idempotencyKey`.
+
+Backend: no hubo que cambiar las operaciones (ya leían el token desde el Parcial II). Solo se
+alinearon los nombres de los permisos con la guía (`app/seed.py` y el script de la demo) y se
+agregaron `tests/test_unidad3_actividad3.py` y `comprobaciones_u3a3.sql`.
 
 ## Actividad 2: cómo se entra a la administración
 1. Levantar todo (ver "Cómo levantar todo" más abajo) y correr `python scripts/preparar_demo_u3a2.py`.
@@ -142,5 +186,6 @@ del día 1 del mes en curso a hoy; cambien las fechas a ese período.
 
 ## Archivos
 `index.html` · `styles.css` · `app.js` · `boceto.svg` (wireframe de la actividad 1) ·
-`evidencias.md` (actividad 1) · `evidencias_actividad2.md` (actividad 2) · `evidencias/` (capturas) ·
+`evidencias.md` (actividad 1) · `evidencias_actividad2.md` (actividad 2) ·
+`evidencias_actividad3.md` (actividad 3) · `evidencias/` (capturas) ·
 `guion_demo.md`

@@ -6,6 +6,8 @@
  * Una sola aplicación con dos dashboards:
  *   - Financiero (Unidad III, actividad 1): período, indicadores y saldo por cuenta.
  *   - Administrativo (Unidad III, actividad 2): usuarios, cuentas y conceptos.
+ *   - Roles y permisos (Unidad III, actividad 3): la matriz rol × permiso y el
+ *     selector de Rol en Usuarios (assignRole).
  *
  * Reglas:
  * - El backend es la única fuente de verdad. Cada tabla es una query, cada Guardar
@@ -88,7 +90,7 @@ const QUERY_USUARIOS = `
       id
       isAdmin
       isActive
-      role { code name }
+      role { id code name }
       user { name email }
     }
   }`;
@@ -99,7 +101,7 @@ const MUTATION_CREAR_USUARIO = `
       id
       isAdmin
       isActive
-      role { code name }
+      role { id code name }
       user { name email }
     }
   }`;
@@ -161,6 +163,97 @@ const MUTATION_QUITAR = `
     removeConceptFromAccount(accountId: $accountId, conceptId: $conceptId)
   }`;
 
+const MUTATION_CREAR_MOVIMIENTO = `
+  mutation RegistrarMovimiento($input: CreateTransactionInput!) {
+    createTransaction(input: $input) { id amount transactionType }
+  }`;
+
+// --- Roles y permisos (actividad 3) ---
+
+const QUERY_MATRIZ = `
+  query Matriz {
+    roles(activeOnly: true) {
+      id
+      code
+      name
+    }
+    permissions(activeOnly: true) {
+      id
+      code
+      name
+    }
+  }`;
+
+const QUERY_LISTA_DEL_ROL = `
+  query ListaDelRol($roleId: ID!) {
+    rolePermissions(roleId: $roleId) {
+      isActive
+      permission {
+        id
+        code
+      }
+    }
+  }`;
+
+const QUERY_VISTA_PREVIA = `
+  query VistaPrevia($input: SetRolePermissionsInput!) {
+    previewRolePermissions(input: $input) {
+      toActivate { code }
+      toDeactivate { code }
+      unchanged { code }
+      finalCount
+    }
+  }`;
+
+const MUTATION_GUARDAR_COLUMNA = `
+  mutation GuardarColumna($input: SetRolePermissionsInput!) {
+    setRolePermissions(input: $input) {
+      activated { code }
+      deactivated { code }
+      unchanged { code }
+      finalCount
+      changed
+    }
+  }`;
+
+const QUERY_ROLES_ACTIVOS = `
+  query RolesActivos {
+    roles(activeOnly: true) { id code name }
+  }`;
+
+const MUTATION_ASIGNAR_PUESTO = `
+  mutation AsignarPuesto($input: AssignRoleInput!) {
+    assignRole(input: $input) {
+      isActive
+      role { id code name }
+    }
+  }`;
+
+// Orden de las columnas de la matriz. ADMINISTRADOR se ve y no se edita
+// (setRolePermissions lo rechaza).
+const ORDEN_ROLES = ["ADMINISTRADOR", "CONTADOR", "CAPTURISTA", "CONSULTA"];
+const ROL_PROTEGIDO = "ADMINISTRADOR";
+
+// Grupos de filas, en este orden aunque el API devuelva otro. Dentro del
+// grupo, la lectura va antes que la escritura.
+const GRUPOS_PERMISO = [
+  { nombre: "Usuarios", prefijo: "company.users." },
+  { nombre: "Cuentas", prefijo: "accounts." },
+  { nombre: "Conceptos", prefijo: "concepts." },
+  { nombre: "Movimientos", prefijo: "transactions." },
+  { nombre: "Roles", prefijo: "roles." },
+];
+const ORDEN_ACCION = ["read", "write"];
+
+// Permisos de lectura que hacen falta para dibujar cada ítem del menú.
+const PERMISOS_SECCION = {
+  financiero: ["accounts.read", "transactions.read"],
+  usuarios: ["company.users.read"],
+  cuentas: ["accounts.read"],
+  conceptos: ["concepts.read"],
+  roles: ["roles.read"],
+};
+
 // Mensajes del backend (app/access.py) que significan "la sesión ya no sirve".
 const ERRORES_DE_SESION = [
   "Falta el token",
@@ -188,6 +281,7 @@ const SECCIONES = {
   usuarios: { titulo: "Dashboard administrativo", cargar: () => cargarUsuarios() },
   cuentas: { titulo: "Dashboard administrativo", cargar: () => cargarCuentas() },
   conceptos: { titulo: "Dashboard administrativo", cargar: () => cargarConceptos() },
+  roles: { titulo: "Dashboard administrativo", cargar: () => cargarRoles() },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -201,6 +295,18 @@ const estado = {
   filtroCuenta: "",
   filtroConcepto: "",
   cuentaElegida: "",
+  rolesAsignables: [], // roles activos para el selector de la columna Rol
+  ultimoCambioRol: "", // membresía cuyo rol se acaba de cambiar (se resalta)
+  llaveMovimiento: null, // idempotencyKey del alta de movimiento en curso
+};
+
+// Matriz de roles y permisos.
+const matriz = {
+  roles: [], // columnas, en el orden de ORDEN_ROLES
+  permisos: [], // filas, agrupadas
+  guardado: new Map(), // roleId -> Set(permissionId) con relación activa en MySQL
+  borrador: null, // { roleId, ids: Set } de la columna que se está editando
+  consultaPreview: 0, // descarta vistas previas viejas
 };
 
 class SesionTerminada extends Error {}
@@ -432,7 +538,49 @@ function mostrarLogin(mensaje) {
 
 function seccionDelHash() {
   const nombre = location.hash.replace(/^#\/(admin\/)?/, "");
-  return SECCIONES[nombre] ? nombre : "financiero";
+  return SECCIONES[nombre] ? nombre : null;
+}
+
+function puedeVerSeccion(nombre) {
+  return (PERMISOS_SECCION[nombre] || []).every(puede);
+}
+
+// Sin dirección en la barra: la primera sección que el rol puede ver. Una
+// dirección escrita a mano se respeta: la pantalla se abre y el API decide.
+function seccionInicial() {
+  return (
+    seccionDelHash() || Object.keys(SECCIONES).find(puedeVerSeccion) || "financiero"
+  );
+}
+
+function pintarEncabezadoAcceso() {
+  $("empresa-nombre").textContent = acceso.companyName;
+  $("usuario-nombre").textContent = acceso.userName;
+  $("usuario-rol").textContent = acceso.role ? `· ${acceso.role.name}` : "· Sin rol";
+}
+
+/*
+ * El token no trae los permisos: cada petición los vuelve a leer en MySQL. Por
+ * eso, al cambiar de pantalla se vuelve a pedir myAccess y el menú y los
+ * botones siguen al rol actual sin cerrar sesión.
+ * Devuelve false si la sesión terminó.
+ */
+async function refrescarAcceso() {
+  try {
+    const datos = await pedir(QUERY_ACCESO, {});
+    acceso = datos.myAccess;
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return false;
+    return Boolean(acceso); // falla de red: se conserva el acceso anterior
+  }
+  pintarEncabezadoAcceso();
+  aplicarPermisos();
+  return true;
+}
+
+async function navegar() {
+  if (!(await refrescarAcceso())) return;
+  mostrarSeccion(seccionInicial());
 }
 
 async function mostrarDashboard() {
@@ -473,25 +621,34 @@ async function mostrarDashboard() {
   }
 
   guardarSesion(CLAVE_EMPRESA, JSON.stringify({ id: acceso.companyId, name: acceso.companyName }));
-  $("empresa-nombre").textContent = acceso.companyName;
-  $("usuario-nombre").textContent = acceso.userName;
-  $("usuario-rol").textContent = acceso.role ? `· ${acceso.role.name}` : "· Sin rol";
+  pintarEncabezadoAcceso();
   aplicarPermisos();
-  mostrarSeccion(seccionDelHash());
+  mostrarSeccion(seccionInicial());
 }
 
-// Quien no tiene el permiso de escritura no ve la acción de alta.
+// Quien no tiene el permiso no ve el ítem del menú ni la acción de alta.
+// Ocultar es solo presentación: el API rechaza la operación de todos modos.
 function aplicarPermisos() {
+  document.querySelectorAll(".menu a[data-seccion]").forEach((enlace) => {
+    enlace.hidden = !puedeVerSeccion(enlace.dataset.seccion);
+  });
+  $("menu").querySelector('[data-grupo="financiero"]').hidden = !puedeVerSeccion("financiero");
+  $("menu").querySelector('[data-grupo="admin"]').hidden = !["usuarios", "cuentas", "conceptos", "roles"]
+    .some(puedeVerSeccion);
+
   $("usr-nuevo").hidden = !puede("company.users.write");
   $("cta-nueva").hidden = !puede("accounts.write");
   $("con-nuevo").hidden = !puede("concepts.write");
   $("ac-asignar").hidden = !puede("concepts.write");
+  $("mov-nuevo").hidden = !puede("transactions.write");
+  $("usr-nota-rol").hidden = !puede("roles.write");
   document.querySelectorAll(".col-accion").forEach((col) => {
     col.hidden = !puede("company.users.write");
   });
   if (!puede("company.users.write")) cerrarFormulario("usr-form");
   if (!puede("accounts.write")) cerrarFormulario("cta-form");
   if (!puede("concepts.write")) cerrarFormulario("con-form");
+  if (!puede("transactions.write")) cerrarFormulario("mov-form");
 }
 
 function mostrarSeccion(nombre) {
@@ -519,10 +676,25 @@ function cerrarSesion(mensaje) {
   estado.cuentas = [];
   estado.conceptos = [];
   estado.cuentaElegida = "";
+  estado.rolesAsignables = [];
+  estado.ultimoCambioRol = "";
+  estado.llaveMovimiento = null;
+  matriz.roles = [];
+  matriz.permisos = [];
+  matriz.guardado = new Map();
+  matriz.borrador = null;
+  matriz.consultaPreview += 1;
+  $("rol-preview").hidden = true;
+  $("rol-tabla-contenedor").hidden = true;
   limpiarResultados();
-  for (const id of ["usr-tabla", "cta-tabla", "con-tabla", "ac-lista"]) $(id).replaceChildren();
-  for (const id of ["usr-form", "cta-form", "con-form"]) cerrarFormulario(id);
-  for (const id of ["usr-aviso", "usr-ok", "cta-aviso", "cta-ok", "con-aviso", "con-ok", "dash-aviso"]) {
+  for (const id of ["usr-tabla", "cta-tabla", "con-tabla", "ac-lista", "rol-cabeza", "rol-cuerpo"]) {
+    $(id).replaceChildren();
+  }
+  for (const id of ["usr-form", "cta-form", "con-form", "mov-form"]) cerrarFormulario(id);
+  for (const id of [
+    "usr-aviso", "usr-ok", "cta-aviso", "cta-ok", "con-aviso", "con-ok", "dash-aviso", "mov-ok",
+    "rol-aviso", "rol-ok", "rol-vacio",
+  ]) {
     mostrarAviso($(id), "");
   }
   $("empresa-nombre").textContent = "Empresa";
@@ -743,16 +915,31 @@ function celdaImporte(valor) {
 async function cargarUsuarios() {
   mostrarAviso($("usr-aviso"), "");
   if (!acceso) return;
-  try {
-    const datos = await pedir(QUERY_USUARIOS, { companyId: acceso.companyId });
-    estado.usuarios = datos.companyUsers;
-    pintarUsuarios();
-  } catch (fallo) {
-    if (fallo instanceof SesionTerminada) return;
-    estado.usuarios = [];
-    pintarUsuarios();
-    mostrarAviso($("usr-aviso"), mensajeDeLectura(fallo, "los usuarios"));
+  const avisos = [];
+
+  // Los roles del selector solo se piden si el rol de la sesión puede asignarlos.
+  const [usuarios, roles] = await Promise.allSettled([
+    pedir(QUERY_USUARIOS, { companyId: acceso.companyId }),
+    puede("roles.write") ? pedir(QUERY_ROLES_ACTIVOS, {}) : Promise.resolve({ roles: [] }),
+  ]);
+  if ([usuarios, roles].some((r) => r.status === "rejected" && r.reason instanceof SesionTerminada)) {
+    return;
   }
+
+  if (usuarios.status === "fulfilled") {
+    estado.usuarios = usuarios.value.companyUsers;
+  } else {
+    estado.usuarios = [];
+    avisos.push(mensajeDeLectura(usuarios.reason, "los usuarios"));
+  }
+  if (roles.status === "fulfilled") {
+    estado.rolesAsignables = ordenarRoles(roles.value.roles);
+  } else {
+    estado.rolesAsignables = [];
+    avisos.push(`No se pudieron leer los roles para el selector: ${roles.reason.message}`);
+  }
+  pintarUsuarios();
+  mostrarAviso($("usr-aviso"), avisos.join(" "));
 }
 
 function pintarUsuarios() {
@@ -794,12 +981,11 @@ function pintarUsuarios() {
 function filaUsuario(membresia) {
   const fila = document.createElement("tr");
   if (!membresia.isActive) fila.className = "fila-inactiva";
+  if (membresia.id === estado.ultimoCambioRol) fila.classList.add("fila-cambiada");
 
   fila.append(celda(membresia.user.name));
   fila.append(celda(membresia.user.email));
-  fila.append(
-    membresia.role ? celda(membresia.role.name) : celda("Sin rol asignado", "texto-suave")
-  );
+  fila.append(celdaRol(membresia));
   fila.append(celda(membresia.isAdmin ? "Sí" : "No"));
   fila.append(celdaEstado(membresia.isActive, false));
 
@@ -821,6 +1007,84 @@ function filaUsuario(membresia) {
     fila.append(accion);
   }
   return fila;
+}
+
+/*
+ * Columna Rol. Sin roles.write solo se lee el texto. Con roles.write se dibuja
+ * un selector con los roles activos y Guardar llama assignRole. El
+ * administrador principal (isAdmin) y las membresías inactivas no llevan
+ * selector: el administrador conserva su rol y el API rechaza las inactivas.
+ */
+function celdaRol(membresia) {
+  const texto = membresia.role ? membresia.role.name : "Sin rol asignado";
+  const conSelector =
+    puede("roles.write") &&
+    estado.rolesAsignables.length > 0 &&
+    membresia.isActive &&
+    !membresia.isAdmin;
+  if (!conSelector) return celda(texto, membresia.role ? "" : "texto-suave");
+
+  const td = document.createElement("td");
+  const control = document.createElement("div");
+  control.className = "control-rol";
+
+  const actual = membresia.role ? membresia.role.id : "";
+  const selector = document.createElement("select");
+  selector.setAttribute("aria-label", `Rol de ${membresia.user.name}`);
+  if (!actual) selector.append(new Option("Sin rol asignado", "", true, true));
+  for (const rol of estado.rolesAsignables) {
+    selector.append(new Option(rol.name, rol.id, false, rol.id === actual));
+  }
+
+  const boton = document.createElement("button");
+  boton.type = "button";
+  boton.className = "btn-texto";
+  boton.textContent = "Guardar";
+  boton.disabled = true;
+
+  selector.addEventListener("change", () => {
+    boton.disabled = !selector.value || selector.value === actual;
+  });
+  boton.addEventListener("click", () => asignarPuesto(membresia, selector.value, boton));
+
+  control.append(selector, boton);
+  td.append(control);
+  return td;
+}
+
+async function asignarPuesto(membresia, roleId, boton) {
+  const anterior = membresia.role ? membresia.role.name : "";
+  ponerOcupado(boton, true, "Guardando…");
+  mostrarAviso($("usr-aviso"), "");
+  mostrarAviso($("usr-ok"), "");
+  try {
+    const datos = await pedir(MUTATION_ASIGNAR_PUESTO, {
+      input: { companyUserId: membresia.id, roleId },
+    });
+    const asignado = datos.assignRole;
+    // La celda muestra lo que devolvió la mutación.
+    membresia.role = asignado.role;
+    estado.ultimoCambioRol = membresia.id;
+    pintarUsuarios();
+    mostrarAviso(
+      $("usr-ok"),
+      `${membresia.user.name} ${anterior ? `deja ${anterior} y ` : ""}toma ${asignado.role.name}` +
+        ` (assignRole: isActive = ${asignado.isActive}). isAdmin sigue en ` +
+        `${membresia.isAdmin ? "Sí" : "No"}.` +
+        (anterior ? ` La columna ${anterior} de la matriz no cambia.` : "") +
+        ` Su siguiente petición, con el mismo token, ya usa los permisos de ${asignado.role.name}.`
+    );
+    await cargarUsuarios(); // se vuelve a leer: companyUsers confirma el cambio
+    await refrescarAcceso(); // por si la persona de la sesión cambió su propio rol
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    pintarUsuarios(); // el selector vuelve al puesto anterior
+    mostrarAviso(
+      $("usr-aviso"),
+      `No se cambió el rol de ${membresia.user.name}: ${fallo.message}` +
+        (anterior ? ` Se queda en ${anterior}.` : "")
+    );
+  }
 }
 
 async function crearUsuario(evento) {
@@ -1200,6 +1464,455 @@ async function quitarConcepto(cuenta, concepto, boton) {
   }
 }
 
+// ===========================================================================
+// ROLES Y PERMISOS (actividad 3)
+// ===========================================================================
+
+function ordenarRoles(roles) {
+  const posicion = (rol) => {
+    const i = ORDEN_ROLES.indexOf(rol.code);
+    return i === -1 ? ORDEN_ROLES.length : i;
+  };
+  return [...roles].sort((a, b) => posicion(a) - posicion(b) || a.code.localeCompare(b.code));
+}
+
+function grupoDe(permiso) {
+  const i = GRUPOS_PERMISO.findIndex((g) => permiso.code.startsWith(g.prefijo));
+  return i === -1 ? GRUPOS_PERMISO.length : i;
+}
+
+function nombreGrupo(indice) {
+  return GRUPOS_PERMISO[indice] ? GRUPOS_PERMISO[indice].nombre : "Otros";
+}
+
+function ordenarPermisos(permisos) {
+  const accion = (p) => {
+    const i = ORDEN_ACCION.indexOf(p.code.split(".").pop());
+    return i === -1 ? ORDEN_ACCION.length : i;
+  };
+  return [...permisos].sort(
+    (a, b) => grupoDe(a) - grupoDe(b) || accion(a) - accion(b) || a.code.localeCompare(b.code)
+  );
+}
+
+function rolPorId(roleId) {
+  return matriz.roles.find((r) => r.id === roleId);
+}
+
+function esProtegido(rol) {
+  return rol.code === ROL_PROTEGIDO;
+}
+
+// Una celda en «sí» es una relación activa con un permiso activo del catálogo.
+function idsConcedidos(relaciones) {
+  const activos = new Set(matriz.permisos.map((p) => p.id));
+  return new Set(
+    relaciones
+      .filter((r) => r.isActive && activos.has(r.permission.id))
+      .map((r) => r.permission.id)
+  );
+}
+
+function pintarModo() {
+  const rol = acceso && acceso.role ? acceso.role.name : "sin rol";
+  const modo = $("rol-modo");
+  if (puede("roles.write")) {
+    modo.className = "modo";
+    modo.textContent =
+      `Sesión de ${acceso.userName} · ${rol}. Puedes cambiar las columnas Contador, Capturista y ` +
+      "Consulta; la columna Administrador es de solo lectura.";
+  } else {
+    modo.className = "modo modo-lectura";
+    modo.textContent =
+      `Solo lectura. Sesión de ${acceso ? acceso.userName : ""} · ${rol}: tiene roles.read y no ` +
+      "roles.write, así que la cuadrícula está deshabilitada y no se puede guardar.";
+  }
+}
+
+async function cargarRoles() {
+  for (const id of ["rol-aviso", "rol-ok", "rol-vacio"]) mostrarAviso($(id), "");
+  descartarColumna();
+  if (!acceso) return;
+  pintarModo();
+
+  try {
+    const datos = await pedir(QUERY_MATRIZ, {});
+    matriz.roles = ordenarRoles(datos.roles);
+    matriz.permisos = ordenarPermisos(datos.permissions);
+    if (!matriz.roles.length || !matriz.permisos.length) {
+      matriz.guardado = new Map();
+      $("rol-tabla-contenedor").hidden = true;
+      mostrarAviso(
+        $("rol-vacio"),
+        "El catálogo de roles y permisos no está cargado: roles o permissions volvieron vacíos."
+      );
+      return;
+    }
+    // rolePermissions se consulta por columna.
+    const listas = await Promise.all(
+      matriz.roles.map((rol) => pedir(QUERY_LISTA_DEL_ROL, { roleId: rol.id }))
+    );
+    matriz.guardado = new Map(
+      matriz.roles.map((rol, i) => [rol.id, idsConcedidos(listas[i].rolePermissions)])
+    );
+    pintarMatriz();
+    $("rol-tabla-contenedor").hidden = false;
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    $("rol-tabla-contenedor").hidden = true;
+    mostrarAviso(
+      $("rol-aviso"),
+      esErrorDePermiso(fallo.message)
+        ? `Acceso denegado: tu rol no tiene permiso para ver la matriz. (${fallo.message})`
+        : `No se pudo consultar la matriz de roles y permisos: ${fallo.message}`
+    );
+  }
+}
+
+function pintarMatriz() {
+  const editable = puede("roles.write");
+  const borrador = matriz.borrador;
+
+  // Encabezado: nombre del rol y, en texto secundario, su código de MySQL.
+  const cabeza = document.createElement("tr");
+  const esquina = document.createElement("th");
+  esquina.scope = "col";
+  esquina.textContent = "Permiso";
+  cabeza.append(esquina);
+
+  for (const rol of matriz.roles) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.className = "col-rol";
+    const nombre = document.createElement("span");
+    nombre.className = "rol-nombre";
+    nombre.textContent = rol.name;
+    const codigo = document.createElement("small");
+    codigo.textContent = esProtegido(rol) ? `${rol.code} · solo lectura` : rol.code;
+    th.append(nombre, codigo);
+
+    if (esProtegido(rol)) {
+      th.classList.add("col-protegida");
+    } else if (editable) {
+      const boton = document.createElement("button");
+      boton.type = "button";
+      boton.className = "btn-columna";
+      boton.dataset.rol = rol.id;
+      boton.textContent = "Revisar y guardar";
+      boton.title = "Abre la vista previa de esta columna tal como está";
+      boton.disabled = Boolean(borrador && borrador.roleId !== rol.id);
+      th.append(boton);
+    }
+    if (borrador && borrador.roleId === rol.id) th.classList.add("col-editando");
+    cabeza.append(th);
+  }
+  $("rol-cabeza").replaceChildren(cabeza);
+
+  // Filas agrupadas por recurso.
+  const filas = [];
+  let grupoActual = null;
+  for (const permiso of matriz.permisos) {
+    const grupo = grupoDe(permiso);
+    if (grupo !== grupoActual) {
+      const filaGrupo = document.createElement("tr");
+      filaGrupo.className = "fila-grupo";
+      const th = document.createElement("th");
+      th.scope = "rowgroup";
+      th.colSpan = matriz.roles.length + 1;
+      th.textContent = nombreGrupo(grupo);
+      filaGrupo.append(th);
+      filas.push(filaGrupo);
+      grupoActual = grupo;
+    }
+
+    const fila = document.createElement("tr");
+    const th = document.createElement("th");
+    th.scope = "row";
+    th.className = "permiso";
+    const nombre = document.createElement("span");
+    nombre.textContent = permiso.name;
+    const codigo = document.createElement("small");
+    codigo.textContent = permiso.code;
+    th.append(nombre, codigo);
+    fila.append(th);
+
+    for (const rol of matriz.roles) fila.append(celdaMatriz(rol, permiso, editable));
+    filas.push(fila);
+  }
+  $("rol-cuerpo").replaceChildren(...filas);
+}
+
+function celdaMatriz(rol, permiso, editable) {
+  const td = document.createElement("td");
+  td.className = "celda-matriz";
+  const guardado = (matriz.guardado.get(rol.id) || new Set()).has(permiso.id);
+  const borrador = matriz.borrador;
+  const enEdicion = Boolean(borrador && borrador.roleId === rol.id);
+  const valor = enEdicion ? borrador.ids.has(permiso.id) : guardado;
+
+  if (esProtegido(rol)) {
+    const marca = document.createElement("span");
+    marca.className = valor ? "marca marca-si" : "marca marca-no";
+    marca.textContent = valor ? "sí" : "no";
+    td.append(marca);
+    td.classList.add("celda-protegida");
+    return td;
+  }
+
+  const casilla = document.createElement("label");
+  casilla.className = valor ? "casilla casilla-si" : "casilla casilla-no";
+  const check = document.createElement("input");
+  check.type = "checkbox";
+  check.checked = valor;
+  check.dataset.rol = rol.id;
+  check.dataset.permiso = permiso.id;
+  check.setAttribute("aria-label", `${rol.name}: ${permiso.name}`);
+  check.disabled = !editable || Boolean(borrador && !enEdicion);
+  if (borrador && !enEdicion) casilla.title = "Guarda o descarta primero la columna que estás editando.";
+
+  const texto = document.createElement("span");
+  texto.textContent = valor ? "sí" : "no";
+  if (valor !== guardado) {
+    casilla.classList.add(valor ? "casilla-activa" : "casilla-desactiva");
+    texto.textContent += valor ? " · se va a activar" : " · se va a desactivar";
+  }
+  casilla.append(check, texto);
+  td.append(casilla);
+  return td;
+}
+
+function abrirColumna(roleId) {
+  if (!matriz.borrador || matriz.borrador.roleId !== roleId) {
+    matriz.borrador = { roleId, ids: new Set(matriz.guardado.get(roleId) || []) };
+  }
+  mostrarAviso($("rol-ok"), "");
+}
+
+function cambiarCelda(evento) {
+  const check = evento.target;
+  if (!check.matches("input[type=checkbox][data-rol]")) return;
+  const roleId = check.dataset.rol;
+  const rol = rolPorId(roleId);
+  if (!rol || esProtegido(rol) || !puede("roles.write")) return;
+  abrirColumna(roleId);
+  if (check.checked) matriz.borrador.ids.add(check.dataset.permiso);
+  else matriz.borrador.ids.delete(check.dataset.permiso);
+  pintarMatriz();
+  pedirVistaPrevia();
+}
+
+// La lista COMPLETA de permisos que deben quedar activos en la columna.
+function entradaDeColumna(borrador) {
+  return {
+    roleId: borrador.roleId,
+    permissionIds: matriz.permisos.filter((p) => borrador.ids.has(p.id)).map((p) => p.id),
+  };
+}
+
+function listaDeCodigos(lista) {
+  return lista.length ? lista.map((p) => p.code).join(", ") : "ninguno";
+}
+
+async function pedirVistaPrevia() {
+  const borrador = matriz.borrador;
+  if (!borrador) return;
+  const rol = rolPorId(borrador.roleId);
+  const miConsulta = ++matriz.consultaPreview;
+
+  $("rol-preview").hidden = false;
+  $("pv-titulo").textContent = `Vista previa · ${rol.name}`;
+  $("pv-cargando").hidden = false;
+  $("pv-guardar").disabled = true;
+  mostrarAviso($("pv-aviso"), "");
+
+  try {
+    const datos = await pedir(QUERY_VISTA_PREVIA, { input: entradaDeColumna(borrador) });
+    if (miConsulta !== matriz.consultaPreview) return; // ya hay otra vista previa
+    const plan = datos.previewRolePermissions;
+    $("pv-activar").textContent = listaDeCodigos(plan.toActivate);
+    $("pv-desactivar").textContent = listaDeCodigos(plan.toDeactivate);
+    $("pv-fila-activar").classList.toggle("resumen-activar", plan.toActivate.length > 0);
+    $("pv-fila-desactivar").classList.toggle("resumen-desactivar", plan.toDeactivate.length > 0);
+    $("pv-sin-cambio").textContent = String(plan.unchanged.length);
+    $("pv-total").textContent = String(plan.finalCount);
+    $("pv-resumen").hidden = false;
+    $("pv-guardar").disabled = false;
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada || miConsulta !== matriz.consultaPreview) return;
+    $("pv-resumen").hidden = true;
+    mostrarAviso($("pv-aviso"), `No se pudo calcular la vista previa: ${fallo.message}`);
+  } finally {
+    if (miConsulta === matriz.consultaPreview) $("pv-cargando").hidden = true;
+  }
+}
+
+async function guardarColumna() {
+  const borrador = matriz.borrador;
+  if (!borrador) return;
+  const rol = rolPorId(borrador.roleId);
+  const boton = $("pv-guardar");
+  ponerOcupado(boton, true, "Guardando…");
+  mostrarAviso($("pv-aviso"), "");
+  mostrarAviso($("rol-aviso"), "");
+
+  try {
+    const datos = await pedir(MUTATION_GUARDAR_COLUMNA, { input: entradaDeColumna(borrador) });
+    const r = datos.setRolePermissions;
+    descartarColumna();
+    mostrarAviso(
+      $("rol-ok"),
+      r.changed
+        ? `Columna ${rol.name} guardada (changed = true). Se activó: ${listaDeCodigos(r.activated)}. ` +
+            `Se desactivó: ${listaDeCodigos(r.deactivated)}. Sin cambio: ${r.unchanged.length}. ` +
+            `Total final: ${r.finalCount}. Vale para todas las personas con el rol ${rol.name}.`
+        : `La columna ${rol.name} ya estaba así: setRolePermissions respondió changed = false. ` +
+            `No se activó ni se desactivó nada y no se duplicaron filas. Total final: ${r.finalCount}.`
+    );
+    await releerColumna(rol.id); // la columna se vuelve a leer de rolePermissions
+    await refrescarAcceso();
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    mostrarAviso($("pv-aviso"), `No se guardó: ${fallo.message}`);
+  } finally {
+    ponerOcupado(boton, false);
+  }
+}
+
+async function releerColumna(roleId) {
+  try {
+    const datos = await pedir(QUERY_LISTA_DEL_ROL, { roleId });
+    matriz.guardado.set(roleId, idsConcedidos(datos.rolePermissions));
+    pintarMatriz();
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    mostrarAviso($("rol-aviso"), `No se pudo volver a leer la columna: ${fallo.message}`);
+  }
+}
+
+function descartarColumna() {
+  matriz.borrador = null;
+  matriz.consultaPreview += 1;
+  $("rol-preview").hidden = true;
+  mostrarAviso($("pv-aviso"), "");
+  if (matriz.roles.length) pintarMatriz();
+}
+
+// ===========================================================================
+// REGISTRAR MOVIMIENTO (se nota el «sí» de transactions.write)
+// ===========================================================================
+
+function nuevaLlave() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return `mov-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function abrirMovimiento() {
+  mostrarAviso($("mov-ok"), "");
+  abrirFormulario("mov-form");
+  $("mov-fecha").value = fechaLocalISO(new Date());
+  // Una llave por acción: se repite si hay que reintentar el mismo Guardar.
+  estado.llaveMovimiento = nuevaLlave();
+  $("mov-cuenta").replaceChildren(new Option("Cargando…", ""));
+  $("mov-concepto").replaceChildren();
+  try {
+    const datos = await pedir(QUERY_CUENTAS, { companyId: acceso.companyId });
+    const activas = datos.accounts.filter((c) => c.isActive);
+    $("mov-cuenta").replaceChildren(
+      ...(activas.length
+        ? activas.map((c) => new Option(c.name, c.id))
+        : [new Option("La empresa no tiene cuentas activas", "")])
+    );
+    await cargarConceptosMovimiento();
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    $("mov-cuenta").replaceChildren(new Option("Sin cuentas", ""));
+    mostrarAviso($("mov-form-aviso"), mensajeDeLectura(fallo, "las cuentas"));
+  }
+}
+
+async function cargarConceptosMovimiento() {
+  const accountId = $("mov-cuenta").value;
+  const selector = $("mov-concepto");
+  selector.replaceChildren();
+  if (!accountId) return;
+  try {
+    const datos = await pedir(QUERY_CONCEPTOS_CUENTA, { accountId });
+    if ($("mov-cuenta").value !== accountId) return;
+    const asignados = datos.accountConcepts.filter((r) => r.isActive);
+    selector.replaceChildren(
+      ...(asignados.length
+        ? asignados.map((r) => {
+            const opcion = new Option(
+              `${r.concept.name} (${ETIQUETA_CONCEPTO[r.concept.conceptType] || r.concept.conceptType})`,
+              r.concept.id
+            );
+            opcion.dataset.tipo = r.concept.conceptType;
+            return opcion;
+          })
+        : [new Option("La cuenta no tiene conceptos asignados", "")])
+    );
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    mostrarAviso($("mov-form-aviso"), mensajeDeLectura(fallo, "los conceptos de la cuenta"));
+  }
+}
+
+async function crearMovimiento(evento) {
+  evento.preventDefault();
+  const aviso = $("mov-form-aviso");
+  const cuenta = $("mov-cuenta").selectedOptions[0];
+  const concepto = $("mov-concepto").selectedOptions[0];
+  const importe = $("mov-importe").value.trim().replace(/,/g, "");
+  const fecha = $("mov-fecha").value;
+
+  if (!cuenta || !cuenta.value || !concepto || !concepto.value) {
+    mostrarAviso(aviso, "Elige una cuenta y un concepto asignado a esa cuenta.");
+    return;
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(importe) || esCero(importe)) {
+    mostrarAviso(aviso, "Escribe un importe mayor que cero, con hasta dos decimales (por ejemplo 150.00).");
+    return;
+  }
+  if (!fecha) {
+    mostrarAviso(aviso, "Elige la fecha del movimiento.");
+    return;
+  }
+
+  const input = {
+    accountId: cuenta.value,
+    conceptId: concepto.value,
+    transactionType: concepto.dataset.tipo,
+    amount: importe,
+    transactionDate: `${fecha}T12:00:00Z`,
+    idempotencyKey: estado.llaveMovimiento || (estado.llaveMovimiento = nuevaLlave()),
+  };
+  const descripcion = textoOVacio($("mov-descripcion").value);
+  if (descripcion) input.shortDescription = descripcion;
+
+  const boton = evento.submitter || $("mov-form").querySelector("[type=submit]");
+  ponerOcupado(boton, true, "Guardando…");
+  mostrarAviso(aviso, "");
+  try {
+    const datos = await pedir(MUTATION_CREAR_MOVIMIENTO, { input });
+    const mov = datos.createTransaction;
+    estado.llaveMovimiento = null;
+    cerrarFormulario("mov-form");
+    mostrarAviso(
+      $("mov-ok"),
+      `Se registró el ${mov.transactionType === "INCOME" ? "ingreso" : "egreso"} de ` +
+        `${formatoImporte(mov.amount)} MXN en ${cuenta.textContent} (movimiento ${mov.id}).`
+    );
+    consultarIndicadores();
+  } catch (fallo) {
+    if (fallo instanceof SesionTerminada) return;
+    mostrarAviso(aviso, `No se guardó: ${fallo.message}`);
+  } finally {
+    ponerOcupado(boton, false);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Arranque
 // ---------------------------------------------------------------------------
@@ -1221,7 +1934,36 @@ $("btn-ver-password").addEventListener("click", () => {
 });
 
 window.addEventListener("hashchange", () => {
-  if (acceso && !$("vista-dashboard").hidden) mostrarSeccion(seccionDelHash());
+  if (acceso && !$("vista-dashboard").hidden) navegar();
+});
+
+// Pulsar el ítem de la pantalla que ya está abierta también vuelve a leer el rol.
+$("menu").addEventListener("click", (evento) => {
+  const enlace = evento.target.closest("a[data-seccion]");
+  if (enlace && enlace.getAttribute("href") === location.hash && acceso) {
+    evento.preventDefault();
+    navegar();
+  }
+});
+
+// Movimiento
+$("mov-nuevo").addEventListener("click", abrirMovimiento);
+$("mov-cuenta").addEventListener("change", cargarConceptosMovimiento);
+$("mov-form").addEventListener("submit", crearMovimiento);
+
+// Roles y permisos
+$("rol-cuerpo").addEventListener("change", cambiarCelda);
+$("rol-cabeza").addEventListener("click", (evento) => {
+  const boton = evento.target.closest(".btn-columna");
+  if (!boton || !puede("roles.write")) return;
+  abrirColumna(boton.dataset.rol);
+  pintarMatriz();
+  pedirVistaPrevia();
+});
+$("pv-guardar").addEventListener("click", guardarColumna);
+$("pv-descartar").addEventListener("click", () => {
+  descartarColumna();
+  mostrarAviso($("rol-ok"), "");
 });
 
 document.querySelectorAll("[data-cerrar]").forEach((boton) => {
